@@ -137,8 +137,14 @@ export default function Pedidos() {
           <Search className="search-icon" />
           <input placeholder="Buscar empresa, # pedido..." value={q} onChange={e => setQ(e.target.value)} style={{minWidth:200}} />
         </div>
-        <input type="date" value={fFechaReg} onChange={e=>setFechaReg(e.target.value)} title="Fecha de registro" />
-        <input type="date" value={fFechaEnt} onChange={e=>setFechaEnt(e.target.value)} title="Fecha de entrega" />
+        <div>
+          <label style={{fontSize:10,color:'#9aa0a6',display:'block',marginBottom:2}}>Fecha del pedido</label>
+          <input type="date" value={fFechaReg} onChange={e=>setFechaReg(e.target.value)} />
+        </div>
+        <div>
+          <label style={{fontSize:10,color:'#9aa0a6',display:'block',marginBottom:2}}>Fecha de entrega</label>
+          <input type="date" value={fFechaEnt} onChange={e=>setFechaEnt(e.target.value)} />
+        </div>
         <select value={fEstado} onChange={e=>setFEstado(e.target.value)}>
           <option value="">Estado (todos)</option>
           {ESTADOS.map(s=><option key={s}>{s}</option>)}

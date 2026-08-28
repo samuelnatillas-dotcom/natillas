@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
-import { Save, Plus, Trash2, UserCheck, UserX, Upload } from 'lucide-react';
+import { Save, Plus, Trash2, UserCheck, UserX, Upload, Check } from 'lucide-react';
 
 export default function Configuracion() {
   const [config, setConfig] = useState({ nombre_negocio:'', nit:'', direccion:'', telefono:'', email:'', mensaje:'', whatsapp:'', logo_url:'' });
@@ -11,6 +11,7 @@ export default function Configuracion() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [nuevoMensajero, setNuevoMensajero] = useState({ nombre:'', telefono:'' });
   const [uploading, setUploading] = useState({});
+  const [savingRow, setSavingRow] = useState({});
   const { toast, ToastContainer } = useToast();
 
   useEffect(() => {
@@ -37,9 +38,36 @@ export default function Configuracion() {
 
   const handleConfigChange = e => setConfig(c=>({...c,[e.target.name]:e.target.value}));
 
-  const updateProducto = async (id, field, value) => {
+  const updateProductoField = (id, field, value) => {
     setProductos(ps => ps.map(p => p.id===id ? {...p,[field]:value} : p));
-    await supabase.from('productos').update({ [field]: value }).eq('id', id);
+  };
+
+  const guardarProducto = async (producto) => {
+    setSavingRow(s => ({ ...s, [producto.id]: 'saving' }));
+    const { error } = await supabase.from('productos').update({
+      nombre: producto.nombre,
+      descripcion: producto.descripcion,
+      precio: parseFloat(producto.precio) || 0,
+      orden: parseInt(producto.orden) || 0,
+    }).eq('id', producto.id);
+
+    if (error) {
+      setSavingRow(s => ({ ...s, [producto.id]: 'error' }));
+      toast('❌ Error al guardar: ' + error.message, 'error');
+      return;
+    }
+
+    // Verificación real: releer el registro desde la base de datos
+    const { data: verificado, error: verifyError } = await supabase.from('productos').select('*').eq('id', producto.id).single();
+    if (verifyError || !verificado || verificado.precio !== (parseFloat(producto.precio) || 0)) {
+      setSavingRow(s => ({ ...s, [producto.id]: 'error' }));
+      toast('❌ No se pudo confirmar el guardado. Intenta de nuevo.', 'error');
+      return;
+    }
+
+    setSavingRow(s => ({ ...s, [producto.id]: 'saved' }));
+    toast(`✅ "${producto.nombre}" guardado correctamente`);
+    setTimeout(() => setSavingRow(s => ({ ...s, [producto.id]: null })), 2500);
   };
 
   const toggleProducto = async (id, activo) => {
@@ -47,6 +75,7 @@ export default function Configuracion() {
     fetchProductos();
     toast(activo ? 'Producto desactivado' : 'Producto activado');
   };
+
 
   const uploadImagen = async (productoId, file) => {
     if (!file) return;
@@ -56,7 +85,8 @@ export default function Configuracion() {
     const { error: upErr } = await supabase.storage.from('productos').upload(path, file, { upsert: true });
     if (upErr) { toast('Error subiendo imagen: '+upErr.message,'error'); setUploading(u=>({...u,[productoId]:false})); return; }
     const { data: { publicUrl } } = supabase.storage.from('productos').getPublicUrl(path);
-    await supabase.from('productos').update({ imagen_url: publicUrl }).eq('id', productoId);
+    const urlConCache = `${publicUrl}?t=${Date.now()}`;
+    await supabase.from('productos').update({ imagen_url: urlConCache }).eq('id', productoId);
     fetchProductos();
     setUploading(u=>({...u,[productoId]:false}));
     toast('✅ Imagen actualizada');
@@ -139,22 +169,34 @@ export default function Configuracion() {
                       </label>
                     </div>
                   </td>
-                  <td><input value={p.nombre||''} onChange={e=>setProductos(ps=>ps.map(x=>x.id===p.id?{...x,nombre:e.target.value}:x))} onBlur={e=>updateProducto(p.id,'nombre',e.target.value)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} /></td>
-                  <td><input value={p.descripcion||''} onChange={e=>setProductos(ps=>ps.map(x=>x.id===p.id?{...x,descripcion:e.target.value}:x))} onBlur={e=>updateProducto(p.id,'descripcion',e.target.value)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} /></td>
-                  <td><input type="number" value={p.precio||''} onChange={e=>setProductos(ps=>ps.map(x=>x.id===p.id?{...x,precio:e.target.value}:x))} onBlur={e=>updateProducto(p.id,'precio',parseFloat(e.target.value)||0)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} placeholder="0" /></td>
-                  <td><input type="number" value={p.orden||''} onChange={e=>setProductos(ps=>ps.map(x=>x.id===p.id?{...x,orden:e.target.value}:x))} onBlur={e=>updateProducto(p.id,'orden',parseInt(e.target.value)||0)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} /></td>
+                  <td><input value={p.nombre||''} onChange={e=>updateProductoField(p.id,'nombre',e.target.value)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} /></td>
+                  <td><input value={p.descripcion||''} onChange={e=>updateProductoField(p.id,'descripcion',e.target.value)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} /></td>
+                  <td><input type="number" value={p.precio||''} onChange={e=>updateProductoField(p.id,'precio',e.target.value)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} placeholder="0" /></td>
+                  <td><input type="number" value={p.orden||''} onChange={e=>updateProductoField(p.id,'orden',e.target.value)} style={{width:'100%',padding:'5px 7px',border:'1px solid #e0e0e0',borderRadius:4,fontSize:13}} /></td>
                   <td><span className={`badge ${p.activo?'badge-green':'badge-gray'}`}>{p.activo?'Activo':'Inactivo'}</span></td>
                   <td>
-                    <button className="btn" style={{padding:'3px 8px',fontSize:11}} onClick={()=>toggleProducto(p.id,p.activo)}>
-                      {p.activo?<UserX size={12}/>:<UserCheck size={12}/>} {p.activo?'Desactivar':'Activar'}
-                    </button>
+                    <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                      <button
+                        className="btn btn-green"
+                        style={{padding:'4px 10px',fontSize:11,justifyContent:'center'}}
+                        onClick={()=>guardarProducto(p)}
+                        disabled={savingRow[p.id]==='saving'}
+                      >
+                        {savingRow[p.id]==='saving' ? '⏳ Guardando...' :
+                         savingRow[p.id]==='saved' ? <><Check size={12}/> Guardado</> :
+                         <><Save size={12}/> Guardar</>}
+                      </button>
+                      <button className="btn" style={{padding:'3px 8px',fontSize:11,justifyContent:'center'}} onClick={()=>toggleProducto(p.id,p.activo)}>
+                        {p.activo?<UserX size={12}/>:<UserCheck size={12}/>} {p.activo?'Desactivar':'Activar'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p style={{fontSize:11,color:'#9aa0a6',marginTop:8}}>💡 Edita directo en la tabla. Para subir imagen toca el ícono verde en la foto del producto.</p>
+        <p style={{fontSize:11,color:'#9aa0a6',marginTop:8}}>💡 Edita los campos y toca <strong>"Guardar"</strong> en cada fila para confirmar los cambios. Verás "✓ Guardado" cuando se confirme en la base de datos. Para subir imagen toca el ícono verde en la foto del producto.</p>
       </div>
 
       {/* Mensajeros */}

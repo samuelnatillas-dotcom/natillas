@@ -19,9 +19,9 @@ export default function Despacho() {
   const { toast, ToastContainer } = useToast();
 
   const [q, setQ] = useState('');
-  const [fFecha, setFFecha] = useState(() => new Date().toISOString().slice(0,10));
+  const [fFecha, setFFecha] = useState('');
   const [fDom, setFDom] = useState('');
-  const [fEstado, setFEstado] = useState('En producción');
+  const [fEstado, setFEstado] = useState('');
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -100,7 +100,10 @@ export default function Despacho() {
           <Search className="search-icon" />
           <input placeholder="Buscar empresa, # pedido..." value={q} onChange={e=>setQ(e.target.value)} />
         </div>
-        <input type="date" value={fFecha} onChange={e=>setFFecha(e.target.value)} />
+        <div>
+          <label style={{fontSize:10,color:'#9aa0a6',display:'block',marginBottom:2}}>Fecha de entrega</label>
+          <input type="date" value={fFecha} onChange={e=>setFFecha(e.target.value)} />
+        </div>
         <select value={fDom} onChange={e=>setFDom(e.target.value)}>
           <option value="">Mensajero (todos)</option>
           {domiciliarios.map(d=><option key={d.id} value={d.id}>{d.nombre}</option>)}
@@ -109,7 +112,7 @@ export default function Despacho() {
           <option value="">Estado (todos)</option>
           {ESTADOS.map(s=><option key={s}>{s}</option>)}
         </select>
-        {(q||fDom||!fEstado) && <button className="btn btn-ghost" onClick={()=>{setQ('');setFDom('');setFEstado('En producción');}}><X size={13} /></button>}
+        {(q||fDom||fEstado||fFecha) && <button className="btn btn-ghost" onClick={()=>{setQ('');setFDom('');setFEstado('');setFFecha('');}}><X size={13} /></button>}
       </div>
 
       {loading ? <div className="empty">Cargando…</div> :

@@ -17,7 +17,7 @@ export default function Produccion() {
   const { toast, ToastContainer } = useToast();
 
   const [q, setQ] = useState('');
-  const [fFecha, setFFecha] = useState(() => new Date().toISOString().slice(0,10));
+  const [fFecha, setFFecha] = useState('');
   const [fEstado, setFEstado] = useState('');
 
   const fetchAll = useCallback(async () => {
@@ -91,7 +91,10 @@ export default function Produccion() {
           <Search className="search-icon" />
           <input placeholder="Buscar empresa, # pedido..." value={q} onChange={e=>setQ(e.target.value)} />
         </div>
-        <input type="date" value={fFecha} onChange={e=>setFFecha(e.target.value)} />
+        <div>
+          <label style={{fontSize:10,color:'#9aa0a6',display:'block',marginBottom:2}}>Fecha de entrega</label>
+          <input type="date" value={fFecha} onChange={e=>setFFecha(e.target.value)} />
+        </div>
         <select value={fEstado} onChange={e=>setFEstado(e.target.value)}>
           <option value="">Estado (todos)</option>
           {ESTADOS.map(s=><option key={s}>{s}</option>)}

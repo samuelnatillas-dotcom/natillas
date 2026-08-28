@@ -186,7 +186,7 @@ export function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, config)
     y+=2; doc.line(M+3,y,W-M-3,y); y+=5;
     doc.setFont('helvetica','bold');
     if(saldo>0){ doc.setTextColor(200,80,0); doc.text('Saldo pendiente:', M+3, y); doc.text(fmt(saldo), W-M-15, y, {align:'right'}); }
-    else { doc.setTextColor(30,126,52); doc.text('PAGADO COMPLETO ✓', W/2, y, {align:'center'}); }
+    else { doc.setTextColor(30,126,52); doc.text('PAGADO COMPLETO', W/2, y, {align:'center'}); }
     doc.setTextColor(150,150,150); doc.setFontSize(7); doc.setFont('helvetica','normal');
     doc.text(config.mensaje||'', W/2, M+128, {align:'center'});
   });

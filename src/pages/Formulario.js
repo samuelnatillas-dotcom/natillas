@@ -53,7 +53,10 @@ export default function Formulario() {
         tiene_anticipo: form.tiene_anticipo === 'si', estado: 'Recibido',
       }]).select().single();
       if (error) throw error;
-      const items = selected.map(p => ({ pedido_id: pedido.id, producto_id: p.id, nombre_producto: p.nombre, cantidad: qtys[p.id], precio_unitario: 0, subtotal: 0 }));
+      const items = selected.map(p => {
+        const precio = parseFloat(p.precio) || 0;
+        return { pedido_id: pedido.id, producto_id: p.id, nombre_producto: p.nombre, cantidad: qtys[p.id], precio_unitario: precio, subtotal: precio * qtys[p.id] };
+      });
       await supabase.from('pedido_items').insert(items);
 
       const lineas = selected.map(p => `• ${p.nombre}: ${qtys[p.id]} und`).join('\n');

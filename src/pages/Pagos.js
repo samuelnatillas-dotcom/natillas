@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
-import { RefreshCw, Download, Search, X, Plus, CheckCircle, Clock } from 'lucide-react';
+import { RefreshCw, Download, Search, X, Plus, CheckCircle, Clock, Edit2, Trash2, Save } from 'lucide-react';
 import { imprimirRecibos } from '../lib/pdf';
 import * as XLSX from 'xlsx';
 
@@ -16,6 +16,8 @@ export default function Pagos() {
   const [modal, setModal] = useState(null);
   const [nuevoPago, setNuevoPago] = useState({ tipo:'Pago Normal', metodo:'Efectivo', monto:'', referencia:'', nota:'' });
   const [savingPago, setSavingPago] = useState(false);
+  const [editingPagoId, setEditingPagoId] = useState(null);
+  const [editPagoData, setEditPagoData] = useState({});
   const [sel, setSel] = useState(new Set());
   const { toast, ToastContainer } = useToast();
 
@@ -78,6 +80,25 @@ export default function Pagos() {
     if (error) { toast('Error: '+error.message,'error'); return; }
     toast('✅ Pago registrado');
     setModal(null);
+    fetchAll();
+  };
+
+  const startEditPago = (pago) => { setEditingPagoId(pago.id); setEditPagoData({ ...pago }); };
+  const cancelEditPago = () => { setEditingPagoId(null); setEditPagoData({}); };
+  const saveEditPago = async () => {
+    const { error } = await supabase.from('pagos').update({
+      tipo: editPagoData.tipo, metodo: editPagoData.metodo,
+      monto: parseFloat(editPagoData.monto) || 0, referencia: editPagoData.referencia || null,
+    }).eq('id', editingPagoId);
+    if (error) { toast('Error: '+error.message,'error'); return; }
+    toast('✅ Pago actualizado');
+    setEditingPagoId(null);
+    fetchAll();
+  };
+  const eliminarPago = async (id) => {
+    if (!window.confirm('¿Eliminar este pago?')) return;
+    await supabase.from('pagos').delete().eq('id', id);
+    toast('Pago eliminado');
     fetchAll();
   };
 
@@ -188,11 +209,11 @@ export default function Pagos() {
 
       {/* Modal pago */}
       {modal && (
-        <div className="overlay" onClick={()=>setModal(null)}>
+        <div className="overlay" onClick={()=>{setModal(null);setEditingPagoId(null);}}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
             <div className="modal-title">
               <span>Pedido #{String(modal.consecutivo).padStart(4,'0')} — {modal.nombre_empresa}</span>
-              <button className="btn btn-ghost" style={{padding:'2px 6px'}} onClick={()=>setModal(null)}><X size={14}/></button>
+              <button className="btn btn-ghost" style={{padding:'2px 6px'}} onClick={()=>{setModal(null);setEditingPagoId(null);}}><X size={14}/></button>
             </div>
 
             <div style={{background:'#f0fdf4',border:'1px solid #ceead6',borderRadius:6,padding:12,marginBottom:14,fontSize:13}}>
@@ -204,10 +225,31 @@ export default function Pagos() {
             {modal.pagosDel?.length>0 && (
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:11,fontWeight:600,color:'#5f6368',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:8}}>Pagos registrados</div>
-                {modal.pagosDel.map((pg,i)=>(
-                  <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid #f1f3f4',fontSize:13}}>
+                {modal.pagosDel.map((pg) => editingPagoId === pg.id ? (
+                  <div key={pg.id} style={{padding:'8px 0',borderBottom:'1px solid #f1f3f4'}}>
+                    <div style={{display:'flex',gap:6,marginBottom:6}}>
+                      <select value={editPagoData.tipo} onChange={e=>setEditPagoData(d=>({...d,tipo:e.target.value}))} style={{flex:1,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}}>
+                        <option>Pago Normal</option><option>Anticipo</option>
+                      </select>
+                      <select value={editPagoData.metodo} onChange={e=>setEditPagoData(d=>({...d,metodo:e.target.value}))} style={{flex:1,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}}>
+                        <option>Efectivo</option><option>Transferencia</option>
+                      </select>
+                    </div>
+                    <div style={{display:'flex',gap:6}}>
+                      <input type="number" value={editPagoData.monto} onChange={e=>setEditPagoData(d=>({...d,monto:e.target.value}))} style={{flex:1,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}} placeholder="Monto" />
+                      <input value={editPagoData.referencia||''} onChange={e=>setEditPagoData(d=>({...d,referencia:e.target.value}))} style={{flex:2,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}} placeholder="Referencia" />
+                      <button className="btn btn-green" style={{padding:'4px 8px'}} onClick={saveEditPago}><Save size={12}/></button>
+                      <button className="btn" style={{padding:'4px 8px'}} onClick={cancelEditPago}><X size={12}/></button>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={pg.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:'1px solid #f1f3f4',fontSize:13}}>
                     <span>{pg.tipo} · {pg.metodo}{pg.referencia?` · ${pg.referencia}`:''}</span>
-                    <strong>{fmt(pg.monto)}</strong>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <strong>{fmt(pg.monto)}</strong>
+                      <button className="btn btn-ghost" style={{padding:'3px 6px'}} onClick={()=>startEditPago(pg)}><Edit2 size={12}/></button>
+                      <button className="btn btn-ghost" style={{padding:'3px 6px',color:'#d93025'}} onClick={()=>eliminarPago(pg.id)}><Trash2 size={12}/></button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -234,7 +276,7 @@ export default function Pagos() {
             </div>
             <div className="actions-row">
               <button className="btn btn-green" onClick={guardarPago} disabled={savingPago}>{savingPago?'Guardando…':'Guardar pago'}</button>
-              <button className="btn" onClick={()=>setModal(null)}>Cancelar</button>
+              <button className="btn" onClick={()=>{setModal(null);setEditingPagoId(null);}}>Cancelar</button>
             </div>
           </div>
         </div>
