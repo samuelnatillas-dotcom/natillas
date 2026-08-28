@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
-import { List, Wrench, Truck, CreditCard, Settings, Menu, X, LogOut } from 'lucide-react';
+import { List, CreditCard, Settings, Menu, X, LogOut } from 'lucide-react';
 import Login from './pages/Login';
 import Pedidos from './pages/Pedidos';
-import Produccion from './pages/Produccion';
-import Despacho from './pages/Despacho';
 import Pagos from './pages/Pagos';
 import Configuracion from './pages/Configuracion';
 import Formulario from './pages/Formulario';
@@ -20,7 +18,6 @@ class ErrorBoundary extends React.Component {
           <h2 style={{ color: '#d93025' }}>⚠️ Error en la aplicación</h2>
           <p style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}>{String(this.state.error.message || this.state.error)}</p>
           <pre style={{ marginTop: 16, fontSize: 11, color: '#888', whiteSpace: 'pre-wrap', maxHeight: 300, overflow: 'auto' }}>{this.state.error.stack}</pre>
-          <p style={{ marginTop: 20, color: '#666', fontSize: 13 }}>Revisa las variables de entorno en Vercel (Settings → Environment Variables) y vuelve a desplegar.</p>
         </div>
       );
     }
@@ -30,11 +27,21 @@ class ErrorBoundary extends React.Component {
 
 const NAV = [
   { to: '/panel/pedidos', icon: List, label: 'Pedidos' },
-  { to: '/panel/produccion', icon: Wrench, label: 'Producción' },
-  { to: '/panel/despacho', icon: Truck, label: 'Despacho' },
   { to: '/panel/pagos', icon: CreditCard, label: 'Pagos y Recaudos' },
   { to: '/panel/configuracion', icon: Settings, label: 'Configuración' },
 ];
+
+function NavLinks({ onNavigate }) {
+  return (
+    <>
+      {NAV.map(({ to, icon: Icon, label }) => (
+        <NavLink key={to} to={to} onClick={onNavigate} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+          <Icon size={16} /><span>{label}</span>
+        </NavLink>
+      ))}
+    </>
+  );
+}
 
 function Sidebar({ onLogout }) {
   return (
@@ -47,11 +54,7 @@ function Sidebar({ onLogout }) {
         </div>
       </div>
       <nav className="sidebar-nav">
-        {NAV.map(({ to, icon: Icon, label }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-            <Icon /><span>{label}</span>
-          </NavLink>
-        ))}
+        <NavLinks />
       </nav>
       <div className="sidebar-footer">
         <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
@@ -62,43 +65,45 @@ function Sidebar({ onLogout }) {
   );
 }
 
-function MobileDrawer({ open, onClose, onLogout }) {
-  const location = useLocation();
-  useEffect(() => { onClose(); }, [location, onClose]);
-  return (
-    <div className={`mobile-drawer${open ? ' open' : ''}`}>
-      <div className="drawer-bg" onClick={onClose} />
-      <nav className="drawer-nav">
-        {NAV.map(({ to, icon: Icon, label }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-            <Icon /><span>{label}</span>
-          </NavLink>
-        ))}
-        <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '8px 10px', marginTop: 'auto' }}>
-          <LogOut size={13} /> Cerrar sesión
-        </button>
-      </nav>
-    </div>
-  );
-}
-
 function Panel({ onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+
+  // Cierra el menú móvil automáticamente al cambiar de ruta
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+
   return (
     <div className="shell">
       <Sidebar onLogout={onLogout} />
+
       <div className="topbar-mobile">
         <span className="topbar-mobile-title">🍮 Natilla Medellín</span>
-        <button className="topbar-mobile-btn" onClick={() => setMenuOpen(o => !o)}>
-          {menuOpen ? <X size={22} /> : <Menu size={22} />}
+        <button className="topbar-mobile-btn" onClick={() => setMenuOpen(true)} aria-label="Abrir menú">
+          <Menu size={24} />
         </button>
       </div>
-      <MobileDrawer open={menuOpen} onClose={() => setMenuOpen(false)} onLogout={onLogout} />
+
+      {menuOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999 }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.45)' }} onClick={() => setMenuOpen(false)} />
+          <nav style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 230, background: '#1a5c2a', padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px 16px' }}>
+              <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>🍮 Natilla Medellín</span>
+              <button onClick={() => setMenuOpen(false)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <NavLinks onNavigate={() => setMenuOpen(false)} />
+            <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.5)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '10px 10px', marginTop: 12 }}>
+              <LogOut size={14} /> Cerrar sesión
+            </button>
+          </nav>
+        </div>
+      )}
+
       <main className="main">
         <Routes>
           <Route path="pedidos" element={<Pedidos />} />
-          <Route path="produccion" element={<Produccion />} />
-          <Route path="despacho" element={<Despacho />} />
           <Route path="pagos" element={<Pagos />} />
           <Route path="configuracion" element={<Configuracion />} />
           <Route path="*" element={<Navigate to="pedidos" replace />} />

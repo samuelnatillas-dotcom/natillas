@@ -54,7 +54,7 @@ export default function Pagos() {
 
   const enriquecidos = pedidos.map(p => {
     const pit = items[p.id] || [];
-    const totalPedido = pit.reduce((s,i)=>s+(i.subtotal||0),0);
+    const totalPedido = pit.reduce((s,i)=>s+(i.subtotal||0),0) + (parseFloat(p.domicilio)||0);
     return { ...p, totalPedido, ...calcSaldo(p.id, totalPedido), pagosDel: pagos.filter(pg=>pg.pedido_id===p.id) };
   });
 
@@ -217,6 +217,9 @@ export default function Pagos() {
             </div>
 
             <div style={{background:'#f0fdf4',border:'1px solid #ceead6',borderRadius:6,padding:12,marginBottom:14,fontSize:13}}>
+              {modal.domicilio > 0 && (
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,color:'#5f6368',fontSize:12}}><span>Incluye domicilio:</span><span>{fmt(modal.domicilio)}</span></div>
+              )}
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}><span>Total pedido:</span><strong>{fmt(modal.totalPedido)}</strong></div>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}><span>Total pagado:</span><strong style={{color:'#1e7e34'}}>{fmt(modal.totalPagado)}</strong></div>
               <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid #ceead6',paddingTop:6,marginTop:4}}><strong>Saldo pendiente:</strong><strong style={{color:modal.saldo>0?'#f29900':'#1e7e34',fontSize:15}}>{modal.saldo>0?fmt(modal.saldo):'¡PAGADO COMPLETO!'}</strong></div>
