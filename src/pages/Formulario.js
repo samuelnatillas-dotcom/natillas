@@ -1,0 +1,211 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+
+export default function Formulario() {
+  const [productos, setProductos] = useState([]);
+  const [config, setConfig] = useState({});
+  const [qtys, setQtys] = useState({});
+  const [form, setForm] = useState({ email:'', nombre_empresa:'', tipo_documento:'', numero_documento:'', nombre_contacto:'', telefono:'', fecha_entrega:'', hora_entrega:'', direccion:'', observaciones:'', tiene_anticipo:null });
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    supabase.from('productos').select('*').eq('activo', true).order('orden').then(({ data }) => {
+      setProductos(data || []);
+      const q = {}; (data||[]).forEach(p => q[p.id] = 0); setQtys(q);
+    });
+    supabase.from('configuracion').select('*').limit(1).single().then(({ data }) => setConfig(data || {}));
+  }, []);
+
+  const chg = (id, delta) => setQtys(q => ({ ...q, [id]: Math.max(0, (q[id]||0) + delta) }));
+  const selected = productos.filter(p => (qtys[p.id]||0) > 0);
+  const totalUnd = selected.reduce((s, p) => s + qtys[p.id], 0);
+
+  const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+
+  const validar = () => {
+    const faltantes = [];
+    if (!form.email) faltantes.push('• Email');
+    if (!form.nombre_empresa) faltantes.push('• Nombre de la empresa');
+    if (!form.tipo_documento) faltantes.push('• Tipo de documento');
+    if (!form.numero_documento) faltantes.push('• Número de documento');
+    if (!form.nombre_contacto) faltantes.push('• Nombre de contacto');
+    if (!selected.length) faltantes.push('• Al menos un producto seleccionado');
+    if (form.tiene_anticipo === null) faltantes.push('• Indicar si tienes anticipo');
+    if (!form.fecha_entrega) faltantes.push('• Fecha de entrega');
+    if (!form.hora_entrega) faltantes.push('• Hora aproximada de entrega');
+    if (!form.telefono) faltantes.push('• Teléfono de contacto');
+    if (!form.direccion) faltantes.push('• Dirección de entrega');
+    return faltantes;
+  };
+
+  const enviar = async () => {
+    const faltantes = validar();
+    if (faltantes.length) { alert('Por favor completa los siguientes datos:\n\n' + faltantes.join('\n')); return; }
+    setSending(true);
+    try {
+      const { data: pedido, error } = await supabase.from('pedidos').insert([{
+        email: form.email, nombre_empresa: form.nombre_empresa,
+        tipo_documento: form.tipo_documento, numero_documento: form.numero_documento,
+        nombre_contacto: form.nombre_contacto, telefono: form.telefono,
+        direccion: form.direccion, fecha_entrega: form.fecha_entrega,
+        hora_entrega: form.hora_entrega, observaciones: form.observaciones,
+        tiene_anticipo: form.tiene_anticipo === 'si', estado: 'Recibido',
+      }]).select().single();
+      if (error) throw error;
+      const items = selected.map(p => ({ pedido_id: pedido.id, producto_id: p.id, nombre_producto: p.nombre, cantidad: qtys[p.id], precio_unitario: 0, subtotal: 0 }));
+      await supabase.from('pedido_items').insert(items);
+
+      const lineas = selected.map(p => `• ${p.nombre}: ${qtys[p.id]} und`).join('\n');
+      const wa = config.whatsapp || process.env.REACT_APP_WHATSAPP || '573195122754';
+      const msg = `🍮 *NUEVO PEDIDO #${String(pedido.consecutivo).padStart(4,'0')} - Natilla Medellín*\n\n👤 Empresa: ${form.nombre_empresa}\n📄 ${form.tipo_documento}: ${form.numero_documento}\n👤 Contacto: ${form.nombre_contacto}\n📧 Email: ${form.email}\n\n🛒 *Productos:*\n${lineas}\n📦 Total: ${totalUnd} unidades\n\n📅 Fecha entrega: ${form.fecha_entrega}\n⏰ Hora: ${form.hora_entrega}\n📞 Teléfono: ${form.telefono}\n📍 Dirección: ${form.direccion}${form.observaciones?'\n📝 Obs: '+form.observaciones:''}\n💰 Anticipo: ${form.tiene_anticipo==='si'?'Sí':'No'}`;
+      window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, '_blank');
+      setSent(true);
+    } catch(e) { alert('Error al enviar el pedido: ' + e.message); }
+    setSending(false);
+  };
+
+  const s = { input: { width:'100%', padding:'10px 0', border:'none', borderBottom:'1.5px solid #dadce0', borderRadius:0, fontSize:15, color:'#3c4043', background:'transparent', outline:'none' }, label: { fontSize:13, color:'#5f6368', display:'block', marginBottom:5 }, card: { background:'#fff', border:'1px solid #e0e0e0', borderRadius:8, padding:20, marginBottom:16 }, cardTitle: { fontSize:11, fontWeight:600, color:'#1e7e34', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:14, paddingBottom:10, borderBottom:'1px solid #f1f3f4' } };
+
+  if (sent) return (
+    <div style={{ background:'#eeeff1', minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ ...s.card, textAlign:'center', maxWidth:400 }}>
+        <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
+        <h2 style={{ fontSize:18, fontWeight:400, color:'#3c4043', marginBottom:8 }}>¡Pedido enviado!</h2>
+        <p style={{ fontSize:13, color:'#5f6368', marginBottom:20 }}>Tu pedido fue registrado y el resumen fue enviado por WhatsApp. Pronto nos comunicaremos contigo.</p>
+        <button onClick={() => { setSent(false); setQtys({}); setForm({ email:'', nombre_empresa:'', tipo_documento:'', numero_documento:'', nombre_contacto:'', telefono:'', fecha_entrega:'', hora_entrega:'', direccion:'', observaciones:'', tiene_anticipo:null }); }} style={{ padding:'10px 24px', background:'#1e7e34', color:'#fff', border:'none', borderRadius:6, fontSize:14, cursor:'pointer' }}>
+          Hacer otro pedido
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ background:'#eeeff1', minHeight:'100vh', fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
+      <div style={{ background:'#fff', borderTop:'5px solid #1e7e34', padding:'20px', textAlign:'center', borderBottom:'1px solid #e0e0e0', marginBottom:0 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:3 }}>
+          <div style={{ width:34, height:34, background:'#1e7e34', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>🍮</div>
+          <span style={{ fontSize:20, fontWeight:400, color:'#3c4043' }}>{config.nombre_negocio||'Natilla Medellín'}</span>
+        </div>
+        <p style={{ fontSize:13, color:'#9aa0a6' }}>Confirmación de Pedido</p>
+      </div>
+
+      <div style={{ maxWidth:640, margin:'0 auto', padding:'16px 16px 120px' }}>
+
+        {/* Contacto */}
+        <div style={s.card}>
+          <div style={s.cardTitle}>Información de contacto</div>
+          <div style={{ marginBottom:16 }}><label style={s.label}>Email <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="email" name="email" value={form.email} onChange={handleChange} placeholder="tucorreo@empresa.com" /></div>
+          <div style={{ marginBottom:16 }}><label style={s.label}>Nombre de la empresa <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="text" name="nombre_empresa" value={form.nombre_empresa} onChange={handleChange} placeholder="Empresa o tu nombre completo" /></div>
+          <div style={{ marginBottom:16 }}>
+            <label style={s.label}>Tipo de documento <span style={{color:'#d93025'}}>*</span></label>
+            <div style={{ position:'relative' }}>
+              <select name="tipo_documento" value={form.tipo_documento} onChange={handleChange} style={{ ...s.input, paddingRight:28, WebkitAppearance:'none', appearance:'none', cursor:'pointer' }}>
+                <option value="">Selecciona el tipo</option>
+                <option>NIT</option><option>Cédula</option><option>Pasaporte</option><option>CE</option>
+              </select>
+              <span style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'#5f6368', fontSize:10 }}>▼</span>
+            </div>
+          </div>
+          <div style={{ marginBottom:16 }}><label style={s.label}>Número de documento <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="text" name="numero_documento" value={form.numero_documento} onChange={handleChange} placeholder="Ej: 900123456-7" inputMode="numeric" /></div>
+          <div><label style={s.label}>Nombre de contacto <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="text" name="nombre_contacto" value={form.nombre_contacto} onChange={handleChange} placeholder="Persona que recibe el pedido" /></div>
+        </div>
+
+        {/* Catálogo */}
+        <div style={s.card}>
+          <div style={s.cardTitle}>Selecciona tu pedido</div>
+          <p style={{ fontSize:13, color:'#5f6368', marginBottom:14 }}>Agrega los productos que deseas y ajusta las cantidades:</p>
+          {productos.map(p => (
+            <div key={p.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid #f1f3f4' }}>
+              <div style={{ width:56, height:56, borderRadius:8, background:'#f1f3f4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, overflow:'hidden' }}>
+                {p.imagen_url ? <img src={p.imagen_url} alt={p.nombre} style={{ width:'100%', height:'100%', objectFit:'cover', borderRadius:8 }} /> : <span style={{fontSize:26}}>🍮</span>}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, color:'#3c4043' }}>{p.nombre}</div>
+                {p.descripcion && <div style={{ fontSize:11, color:'#9aa0a6', marginTop:1 }}>{p.descripcion}</div>}
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                <button onClick={() => chg(p.id,-1)} style={{ width:30, height:30, borderRadius:'50%', border:'1px solid #dadce0', background:'#fff', color:'#5f6368', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>−</button>
+                <input type="number" value={qtys[p.id]||0} min={0} onChange={e => setQtys(q => ({...q,[p.id]:Math.max(0,parseInt(e.target.value)||0)}))} style={{ width:48, padding:'5px 4px', border:'1px solid #dadce0', borderRadius:4, textAlign:'center', fontSize:14, fontWeight:500, color:'#3c4043', outline:'none' }} />
+                <button onClick={() => chg(p.id,1)} style={{ width:30, height:30, borderRadius:'50%', border:'1px solid #dadce0', background:'#fff', color:'#5f6368', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>+</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Anticipo */}
+        <div style={s.card}>
+          <div style={s.cardTitle}>¿Tienes anticipo?</div>
+          <p style={{ fontSize:13, color:'#5f6368', lineHeight:1.6, marginBottom:12 }}>Para pedidos mayores a 100 unidades debes enviar el comprobante del anticipo por WhatsApp antes de registrar el pedido.</p>
+          <div style={{ display:'flex', gap:10 }}>
+            {['si','no'].map(v => (
+              <div key={v} onClick={() => setForm(f=>({...f,tiene_anticipo:v}))} style={{ flex:1, padding:'10px', border:`1.5px solid ${form.tiene_anticipo===v?'#1e7e34':'#dadce0'}`, borderRadius:8, textAlign:'center', fontSize:14, color:form.tiene_anticipo===v?'#1e7e34':'#5f6368', fontWeight:form.tiene_anticipo===v?500:400, cursor:'pointer', background:form.tiene_anticipo===v?'#e6f4ea':'#fff' }}>
+                {v === 'si' ? 'Sí' : 'No'}
+              </div>
+            ))}
+          </div>
+          {form.tiene_anticipo === 'si' && (
+            <a href={`https://wa.me/${config.whatsapp||'573195122754'}`} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, background:'#25d366', color:'#fff', borderRadius:8, padding:11, fontSize:13, fontWeight:500, marginTop:12, textDecoration:'none' }}>
+              📲 Enviar comprobante por WhatsApp
+            </a>
+          )}
+        </div>
+
+        {/* Aviso horarios */}
+        <div style={{ background:'#fef9e7', border:'1px solid #fce8a2', borderRadius:8, padding:'11px 13px', fontSize:13, color:'#7d5a00', marginBottom:16, display:'flex', gap:8, lineHeight:1.5 }}>
+          ⚠️ <span>No laboramos domingos ni festivos. Sábados hasta las 2:00 p.m. Entregas a partir de las 8:00 a.m.</span>
+        </div>
+
+        {/* Fecha y hora */}
+        <div style={s.card}>
+          <div style={s.cardTitle}>Fecha y hora de entrega</div>
+          <div style={{ marginBottom:16 }}><label style={s.label}>Fecha de entrega <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="date" name="fecha_entrega" value={form.fecha_entrega} onChange={handleChange} /></div>
+          <div><label style={s.label}>Hora aproximada <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="time" name="hora_entrega" value={form.hora_entrega} onChange={handleChange} /></div>
+        </div>
+
+        {/* Entrega */}
+        <div style={s.card}>
+          <div style={s.cardTitle}>Datos de entrega</div>
+          <div style={{ marginBottom:16 }}><label style={s.label}>Teléfono de contacto <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="tel" name="telefono" value={form.telefono} onChange={handleChange} placeholder="300 000 0000" /></div>
+          <div style={{ marginBottom:16 }}><label style={s.label}>Dirección de entrega <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="text" name="direccion" value={form.direccion} onChange={handleChange} placeholder="Calle, carrera, barrio e indicaciones" /></div>
+          <div><label style={s.label}>Observaciones</label><input style={s.input} type="text" name="observaciones" value={form.observaciones} onChange={handleChange} placeholder="Instrucciones especiales para tu pedido..." /></div>
+        </div>
+
+        {/* Resumen en tiempo real */}
+        {selected.length > 0 && (
+          <div style={{ background:'#fff', border:'1.5px solid #ceead6', borderRadius:8, padding:16, marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:'#1e7e34', marginBottom:10 }}>📋 Resumen de tu pedido</div>
+            {selected.map(p => (
+              <div key={p.id} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid #f1f3f4', fontSize:13 }}>
+                <span style={{ color:'#3c4043' }}>{p.nombre}</span>
+                <span style={{ background:'#e6f4ea', color:'#1e7e34', fontWeight:500, fontSize:12, padding:'2px 9px', borderRadius:999 }}>{qtys[p.id]} und</span>
+              </div>
+            ))}
+            <div style={{ display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:'1.5px solid #ceead6', fontSize:14, fontWeight:600, color:'#3c4043' }}>
+              <span>Total unidades</span><span>{totalUnd} und</span>
+            </div>
+          </div>
+        )}
+
+        <button onClick={enviar} disabled={sending} style={{ width:'100%', padding:14, background:'#1e7e34', color:'#fff', border:'none', borderRadius:8, fontSize:15, fontWeight:500, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+          {sending ? 'Enviando...' : '📲 Enviar pedido por WhatsApp'}
+        </button>
+      </div>
+
+      {/* Cart bar fijo */}
+      <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'#fff', borderTop:'1px solid #e0e0e0', padding:'10px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, boxShadow:'0 -2px 8px rgba(0,0,0,.06)', zIndex:100 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          {selected.length === 0 ? <span style={{ fontSize:13, color:'#9aa0a6' }}>Selecciona productos para continuar</span> : (
+            <>
+              <div style={{ fontSize:13, fontWeight:500, color:'#3c4043' }}>{selected.length} producto{selected.length>1?'s':''} · {totalUnd} unidades</div>
+              <div style={{ fontSize:11, color:'#9aa0a6', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{selected.map(p=>p.nombre.split(' ').slice(0,2).join(' ')+'×'+qtys[p.id]).join(' · ')}</div>
+            </>
+          )}
+        </div>
+        <button disabled={!selected.length} onClick={() => document.querySelector('[data-resumen]')?.scrollIntoView({behavior:'smooth'})} style={{ background: selected.length?'#1e7e34':'#dadce0', color:'#fff', border:'none', borderRadius:999, padding:'9px 18px', fontSize:13, fontWeight:500, cursor:selected.length?'pointer':'default', whiteSpace:'nowrap', flexShrink:0 }}>
+          Ver resumen →
+        </button>
+      </div>
+    </div>
+  );
+}
