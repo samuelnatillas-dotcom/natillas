@@ -50,7 +50,7 @@ function renderOrden(doc, pedido, items, config) {
 
   const body = items.map(i=>[i.cantidad, i.nombre_producto, fmt(i.precio_unitario), fmt(i.subtotal)]);
   const foot = [];
-  if (pedido.domicilio > 0) foot.push(['','','Domicilio', fmt(pedido.domicilio)]);
+  foot.push(['','','Domicilio', fmt(pedido.domicilio || 0)]);
   foot.push(['','','TOTAL $', fmt(totalPedido(items, pedido.domicilio))]);
 
   doc.autoTable({
@@ -60,7 +60,7 @@ function renderOrden(doc, pedido, items, config) {
     body, foot,
     styles:{fontSize:8, cellPadding:2},
     headStyles:{fillColor:[30,126,52], textColor:255, fontStyle:'bold'},
-    footStyles:{fontStyle:'bold', fillColor:[240,248,240]},
+    footStyles:{fontStyle:'bold', fillColor:[240,248,240], textColor:[30,30,30]},
     columnStyles:{0:{cellWidth:18,halign:'center'},2:{cellWidth:32,halign:'right'},3:{cellWidth:32,halign:'right'}},
   });
 
@@ -148,18 +148,25 @@ export function imprimirComandas(pedidos, itemsPorPedido, config) {
 // ── RECIBO DE CAJA (media carta vertical) ───────────────────────────────────
 export function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, config) {
   if(!pedidos.length) return;
-  const doc = new jsPDF({orientation:'portrait', unit:'mm', format:[216,140]});
+  // Media carta VERTICAL real: 140mm de ancho x 216mm de alto (mitad de una carta)
+  const doc = new jsPDF({orientation:'portrait', unit:'mm', format:[140,216]});
   pedidos.forEach((pedido,idx) => {
-    if(idx>0) doc.addPage([216,140],'portrait');
-    const W=216, M=10;
+    if(idx>0) doc.addPage([140,216],'portrait');
+    const W=140, M=8;
     const pagos = pagosPorPedido[pedido.id]||[];
     const items = itemsPorPedido[pedido.id]||[];
     const totalConDom = totalPedido(items, pedido.domicilio);
     const totalPagado = pagos.reduce((s,p)=>s+(p.monto||0),0);
     const saldo = totalConDom - totalPagado;
 
+    // Calcula la altura necesaria según cuántas líneas de contenido hay
+    const lineasProductos = items.length + 1;
+    const lineasPagos = pagos.length;
+    const alturaContenido = 60 + (lineasProductos * 5) + (lineasPagos * 5) + 30;
+    const alturaCaja = Math.min(200, Math.max(140, alturaContenido));
+
     doc.setDrawColor(30,126,52); doc.setLineWidth(0.5);
-    doc.rect(M, M, W-M*2, 120);
+    doc.rect(M, M, W-M*2, alturaCaja);
 
     doc.setFillColor(30,126,52);
     doc.rect(M, M, W-M*2, 16, 'F');
@@ -169,25 +176,48 @@ export function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, config)
     doc.setFontSize(8); doc.setFont('helvetica','normal');
     doc.text('RECIBO DE CAJA', W/2, M+13, {align:'center'});
 
-    let y=M+22; doc.setTextColor(30,30,30); doc.setFontSize(8);
-    const campo=(l,v)=>{ doc.setFont('helvetica','bold');doc.text(l,M+3,y);doc.setFont('helvetica','normal');doc.text(String(v||''),M+40,y);y+=6; };
+    let y=M+24; doc.setTextColor(30,30,30); doc.setFontSize(8);
+    const campo=(l,v)=>{ doc.setFont('helvetica','bold');doc.text(l,M+3,y);doc.setFont('helvetica','normal');doc.text(String(v||''),M+35,y);y+=6; };
     campo('No. Pedido:', `#${String(pedido.consecutivo).padStart(4,'0')}`);
     campo('Cliente:', pedido.nombre_empresa);
     campo('Teléfono:', pedido.telefono);
     campo('Entrega:', `${fmtDate(pedido.fecha_entrega)} ${pedido.hora_entrega?pedido.hora_entrega.slice(0,5):''}`);
-    y+=2; doc.setDrawColor(220,220,220); doc.line(M+3,y,W-M-3,y); y+=4;
-    doc.setFont('helvetica','bold'); doc.text('PRODUCTOS:', M+3, y); y+=5;
-    items.forEach(i=>{ doc.setFont('helvetica','normal'); doc.text(`${i.cantidad}x ${i.nombre_producto}`, M+5, y); doc.text(fmt(i.subtotal), W-M-15, y, {align:'right'}); y+=5; });
-    if (pedido.domicilio > 0) { doc.text('Domicilio', M+5, y); doc.text(fmt(pedido.domicilio), W-M-15, y, {align:'right'}); y+=5; }
-    y+=2; doc.line(M+3,y,W-M-3,y); y+=5;
-    doc.setFont('helvetica','bold'); doc.text('Total pedido:', M+3, y); doc.text(fmt(totalConDom), W-M-15, y, {align:'right'}); y+=6;
-    pagos.forEach(p=>{ doc.setFont('helvetica','normal'); doc.text(`${p.tipo} (${p.metodo}):`, M+3, y); doc.text(fmt(p.monto), W-M-15, y, {align:'right'}); y+=5; });
-    y+=2; doc.line(M+3,y,W-M-3,y); y+=5;
-    doc.setFont('helvetica','bold');
-    if(saldo>0){ doc.setTextColor(200,80,0); doc.text('Saldo pendiente:', M+3, y); doc.text(fmt(saldo), W-M-15, y, {align:'right'}); }
-    else { doc.setTextColor(30,126,52); doc.text('PAGADO COMPLETO', W/2, y, {align:'center'}); }
+    y+=2; doc.setDrawColor(220,220,220); doc.line(M+3,y,W-M-3,y); y+=5;
+    doc.setFont('helvetica','bold'); doc.text('PRODUCTOS:', M+3, y); y+=6;
+    items.forEach(i=>{
+      doc.setFont('helvetica','normal');
+      doc.text(`${i.cantidad}x ${i.nombre_producto}`, M+5, y, {maxWidth: W-M*2-40});
+      doc.text(fmt(i.subtotal), W-M-3, y, {align:'right'});
+      y+=5;
+    });
+    doc.text('Domicilio', M+5, y);
+    doc.text(fmt(pedido.domicilio || 0), W-M-3, y, {align:'right'});
+    y+=5;
+    y+=2; doc.line(M+3,y,W-M-3,y); y+=6;
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,126,52);
+    doc.text('Total pedido:', M+3, y);
+    doc.text(fmt(totalConDom), W-M-3, y, {align:'right'});
+    doc.setFontSize(8); doc.setTextColor(30,30,30);
+    y+=7;
+    pagos.forEach(p=>{
+      doc.setFont('helvetica','normal');
+      doc.text(`${p.tipo} (${p.metodo}):`, M+3, y, {maxWidth: W-M*2-40});
+      doc.text(fmt(p.monto), W-M-3, y, {align:'right'});
+      y+=5;
+    });
+    y+=2; doc.line(M+3,y,W-M-3,y); y+=7;
+    doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    if(saldo>0){
+      doc.setTextColor(200,80,0);
+      doc.text('Saldo pendiente:', M+3, y);
+      doc.text(fmt(saldo), W-M-3, y, {align:'right'});
+    } else {
+      doc.setTextColor(30,126,52);
+      doc.text('PAGADO COMPLETO', W/2, y, {align:'center'});
+    }
     doc.setTextColor(150,150,150); doc.setFontSize(7); doc.setFont('helvetica','normal');
-    doc.text(config.mensaje||'', W/2, M+128, {align:'center'});
+    const mensajeLimpio = (config.mensaje||'').replace(/^\/+/, '').trim();
+    doc.text(mensajeLimpio, W/2, M+alturaCaja-4, {align:'center', maxWidth: W-M*2});
   });
   doc.save(`Recibos_${new Date().toISOString().slice(0,10)}.pdf`);
 }
@@ -227,19 +257,19 @@ export function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
       head:[['CANT.','PRODUCTO','VR. UNITARIO','VR. TOTAL']],
       body: items.map(i=>[i.cantidad, i.nombre_producto, fmt(i.precio_unitario), fmt(i.subtotal)]),
       foot: [
-        ...(pedido.domicilio>0 ? [['','','Valor domicilio', fmt(pedido.domicilio)]] : [['','','Envío','Gratis']]),
+        ['','','Valor domicilio', fmt(pedido.domicilio || 0)],
         ['','','TOTAL', fmt(totalPedido(items, pedido.domicilio))],
       ],
       styles:{fontSize:10, cellPadding:4},
       headStyles:{fillColor:[30,126,52], textColor:255, fontStyle:'bold'},
-      footStyles:{fontStyle:'bold', fillColor:[240,248,240]},
+      footStyles:{fontStyle:'bold', fillColor:[240,248,240], textColor:[30,30,30]},
       columnStyles:{0:{cellWidth:22,halign:'center'},2:{cellWidth:40,halign:'right'},3:{cellWidth:40,halign:'right'}},
     });
 
     let fy = doc.lastAutoTable.finalY + 14;
     doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
     doc.text('- Somos persona natural (no somos responsables de IVA)', M, fy); fy += 6;
-    doc.text(`- Envío: ${pedido.domicilio>0 ? fmt(pedido.domicilio) : 'Gratis'}`, M, fy); fy += 20;
+    doc.text(`- Domicilio: ${fmt(pedido.domicilio || 0)}`, M, fy); fy += 20;
 
     doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
     doc.text(config.nombre_negocio||'', M, fy); fy += 5;
@@ -283,11 +313,12 @@ export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
     y += 14;
 
     const numeroEnLetras = fmt(total);
-    doc.setFont('helvetica','bold'); doc.setFontSize(11);
-    doc.text(`LA SUMA DE: ${numeroEnLetras}`, M, y, {maxWidth: W-M*2}); y += 7;
+    doc.setTextColor(30,126,52); doc.setFont('helvetica','bold'); doc.setFontSize(14);
+    doc.text(`LA SUMA DE: ${numeroEnLetras}`, M, y, {maxWidth: W-M*2}); y += 9;
+    doc.setTextColor(30,30,30);
     const conceptoLineas = items.map(i=>`${i.cantidad}x ${i.nombre_producto}`).join(', ');
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(`POR CONCEPTO DE: ${conceptoLineas}${pedido.domicilio>0?' + domicilio':''}`, M, y, {maxWidth: W-M*2});
+    doc.text(`POR CONCEPTO DE: ${conceptoLineas} + domicilio (${fmt(pedido.domicilio || 0)})`, M, y, {maxWidth: W-M*2});
     y += 24;
 
     doc.setFontSize(9);
