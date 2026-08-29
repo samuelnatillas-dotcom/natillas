@@ -3,7 +3,61 @@ import 'jspdf-autotable';
 
 const fmt = n => `$${Number(n||0).toLocaleString('es-CO')}`;
 const fmtDate = d => d ? new Date(d+'T12:00').toLocaleDateString('es-CO') : '';
-const totalPedido = (items, domicilio) => items.reduce((s,i)=>s+(i.subtotal||0),0) + (parseFloat(domicilio)||0);
+
+// El domicilio ya no es una columna aparte: es un item más dentro de pedido_items
+// (nombre_producto = 'Domicilio'). El total es simplemente la suma de todos los items.
+const totalPedido = (items) => items.reduce((s,i)=>s+(i.subtotal||0),0);
+
+// ── Utilidad: precargar imágenes remotas como dataURL para poder ────────────
+// ── insertarlas dentro del PDF (jsPDF requiere datos locales/base64) ───────
+const imageCache = new Map();
+async function loadImageDataUrl(url) {
+  if (!url) return null;
+  if (imageCache.has(url)) return imageCache.get(url);
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    imageCache.set(url, dataUrl);
+    return dataUrl;
+  } catch (e) {
+    console.warn('No se pudo cargar imagen:', url);
+    return null;
+  }
+}
+function detectFormat(dataUrl) {
+  if (!dataUrl) return 'JPEG';
+  if (dataUrl.startsWith('data:image/png')) return 'PNG';
+  if (dataUrl.startsWith('data:image/webp')) return 'WEBP';
+  return 'JPEG';
+}
+// Calcula ancho/alto proporcional para que el logo no se deforme al insertarlo
+function getImageDimensions(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.width, h: img.height });
+    img.onerror = () => resolve({ w: 1, h: 1 });
+    img.src = dataUrl;
+  });
+}
+function fitBox(natW, natH, maxSize) {
+  const ratio = natW / natH;
+  if (ratio >= 1) return { w: maxSize, h: maxSize / ratio };
+  return { w: maxSize * ratio, h: maxSize };
+}
+const dimCache = new Map();
+async function preloadAllImages(urls) {
+  const unicas = [...new Set(urls.filter(Boolean))];
+  await Promise.all(unicas.map(async (url) => {
+    const dataUrl = await loadImageDataUrl(url);
+    if (dataUrl) dimCache.set(url, await getImageDimensions(dataUrl));
+  }));
+}
 
 // ── ORDEN DE DESPACHO (remisión media carta horizontal) ─────────────────────
 function renderOrden(doc, pedido, items, config) {
@@ -49,15 +103,13 @@ function renderOrden(doc, pedido, items, config) {
   doc.text(`${fmtDate(pedido.fecha_entrega)} ${pedido.hora_entrega?pedido.hora_entrega.slice(0,5):''}`, M+75, y);
 
   const body = items.map(i=>[i.cantidad, i.nombre_producto, fmt(i.precio_unitario), fmt(i.subtotal)]);
-  const foot = [];
-  foot.push(['','','Domicilio', fmt(pedido.domicilio || 0)]);
-  foot.push(['','','TOTAL $', fmt(totalPedido(items, pedido.domicilio))]);
 
   doc.autoTable({
     startY: y+4,
     margin: {left:M+2, right:M+2},
     head:[['CANT.','DESCRIPCIÓN','VR. UNITARIO','VR. TOTAL']],
-    body, foot,
+    body,
+    foot: [['','','TOTAL $', fmt(totalPedido(items))]],
     styles:{fontSize:8, cellPadding:2},
     headStyles:{fillColor:[30,126,52], textColor:255, fontStyle:'bold'},
     footStyles:{fontStyle:'bold', fillColor:[240,248,240], textColor:[30,30,30]},
@@ -93,7 +145,9 @@ export function imprimirOrdenes(pedidos, itemsPorPedido, config) {
 }
 
 // ── COMANDA DE PRODUCCIÓN (media carta horizontal) ──────────────────────────
+// No incluye el item "Domicilio": la comanda es solo para cocina/producción.
 function renderComanda(doc, pedido, items, config) {
+  const itemsProduccion = items.filter(i => i.nombre_producto !== 'Domicilio');
   const W = 216, H = 140, M = 8;
   doc.setDrawColor(30,126,52); doc.setLineWidth(0.5);
   doc.rect(M, M, W-M*2, H-M*2);
@@ -120,7 +174,7 @@ function renderComanda(doc, pedido, items, config) {
     startY: y+19,
     margin: {left:M+2, right:M+2},
     head:[['PRODUCTO','CANTIDAD']],
-    body: items.map(i=>[i.nombre_producto, `${i.cantidad} und`]),
+    body: itemsProduccion.map(i=>[i.nombre_producto, `${i.cantidad} und`]),
     styles:{fontSize:9, cellPadding:3},
     headStyles:{fillColor:[240,248,240], textColor:[30,126,52], fontStyle:'bold'},
     columnStyles:{1:{halign:'center', cellWidth:40, fontStyle:'bold', textColor:[30,126,52]}},
@@ -145,137 +199,205 @@ export function imprimirComandas(pedidos, itemsPorPedido, config) {
   doc.save(`Comandas_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
-// ── RECIBO DE CAJA (media carta vertical) ───────────────────────────────────
-export function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, config) {
+// ── RECIBO DE CAJA — ultra compacto, tipo POS, media carta vertical ─────────
+export async function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, config) {
   if(!pedidos.length) return;
-  // Media carta VERTICAL real: 140mm de ancho x 216mm de alto (mitad de una carta)
+
+  const logoDataUrl = config.logo_url ? await loadImageDataUrl(config.logo_url) : null;
+  const logoFormat = detectFormat(logoDataUrl);
+  const logoDim = logoDataUrl ? await getImageDimensions(logoDataUrl) : null;
+  const logoBox = logoDim ? fitBox(logoDim.w, logoDim.h, 12) : null;
+
   const doc = new jsPDF({orientation:'portrait', unit:'mm', format:[140,216]});
-  pedidos.forEach((pedido,idx) => {
+
+  pedidos.forEach((pedido, idx) => {
     if(idx>0) doc.addPage([140,216],'portrait');
-    const W=140, M=8;
+    const W=140, M=6;
     const pagos = pagosPorPedido[pedido.id]||[];
     const items = itemsPorPedido[pedido.id]||[];
-    const totalConDom = totalPedido(items, pedido.domicilio);
+    const total = totalPedido(items);
     const totalPagado = pagos.reduce((s,p)=>s+(p.monto||0),0);
-    const saldo = totalConDom - totalPagado;
+    const saldo = total - totalPagado;
 
-    // Calcula la altura necesaria según cuántas líneas de contenido hay
-    const lineasProductos = items.length + 1;
-    const lineasPagos = pagos.length;
-    const alturaContenido = 60 + (lineasProductos * 5) + (lineasPagos * 5) + 30;
-    const alturaCaja = Math.min(200, Math.max(140, alturaContenido));
+    let y = M + 4;
 
-    doc.setDrawColor(30,126,52); doc.setLineWidth(0.5);
-    doc.rect(M, M, W-M*2, alturaCaja);
+    // Logo pequeño + datos del negocio, muy compacto
+    if (logoDataUrl && logoBox) {
+      try { doc.addImage(logoDataUrl, logoFormat, M, y-3, logoBox.w, logoBox.h); } catch(e) {}
+    }
+    const xTexto = logoDataUrl ? M+15 : M;
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text(config.nombre_negocio||'Natilla Medellín', xTexto, y);
+    y += 4;
+    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(90,90,90);
+    if (config.nit) { doc.text(`NIT: ${config.nit}`, xTexto, y); y += 3.2; }
+    if (config.direccion) { doc.text(config.direccion, xTexto, y); y += 3.2; }
+    if (config.telefono || config.email) { doc.text(`${config.telefono||''}  ${config.email||''}`, xTexto, y); y += 3.2; }
 
-    doc.setFillColor(30,126,52);
-    doc.rect(M, M, W-M*2, 16, 'F');
-    doc.setTextColor(255,255,255);
-    doc.setFontSize(12); doc.setFont('helvetica','bold');
-    doc.text(config.nombre_negocio||'Natilla Medellín', W/2, M+7, {align:'center'});
-    doc.setFontSize(8); doc.setFont('helvetica','normal');
-    doc.text('RECIBO DE CAJA', W/2, M+13, {align:'center'});
+    y = Math.max(y, M + 14) + 2;
+    doc.setDrawColor(30,126,52); doc.setLineWidth(0.4);
+    doc.line(M, y, W-M, y); y += 4;
 
-    let y=M+24; doc.setTextColor(30,30,30); doc.setFontSize(8);
-    const campo=(l,v)=>{ doc.setFont('helvetica','bold');doc.text(l,M+3,y);doc.setFont('helvetica','normal');doc.text(String(v||''),M+35,y);y+=6; };
-    campo('No. Pedido:', `#${String(pedido.consecutivo).padStart(4,'0')}`);
+    doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(30,126,52);
+    doc.text('RECIBO DE CAJA', M, y);
+    doc.text(`No. ${String(pedido.consecutivo).padStart(4,'0')}`, W-M, y, {align:'right'});
+    y += 4.5;
+
+    doc.setFontSize(6.8); doc.setTextColor(30,30,30);
+    const campo = (l,v) => { doc.setFont('helvetica','bold'); doc.text(l,M,y); doc.setFont('helvetica','normal'); doc.text(String(v||''), M+22, y, {maxWidth: W-M*2-22}); y += 3.6; };
     campo('Cliente:', pedido.nombre_empresa);
     campo('Teléfono:', pedido.telefono);
     campo('Entrega:', `${fmtDate(pedido.fecha_entrega)} ${pedido.hora_entrega?pedido.hora_entrega.slice(0,5):''}`);
-    y+=2; doc.setDrawColor(220,220,220); doc.line(M+3,y,W-M-3,y); y+=5;
-    doc.setFont('helvetica','bold'); doc.text('PRODUCTOS:', M+3, y); y+=6;
-    items.forEach(i=>{
-      doc.setFont('helvetica','normal');
-      doc.text(`${i.cantidad}x ${i.nombre_producto}`, M+5, y, {maxWidth: W-M*2-40});
-      doc.text(fmt(i.subtotal), W-M-3, y, {align:'right'});
-      y+=5;
+
+    y += 1.5;
+    doc.setDrawColor(220,220,220); doc.line(M, y, W-M, y); y += 4;
+
+    // Tabla ultra compacta
+    doc.autoTable({
+      startY: y,
+      margin: {left:M, right:M},
+      head: [['CANT','DESCRIPCIÓN','P.UNIT','TOTAL']],
+      body: items.map(i => [i.cantidad, i.nombre_producto, fmt(i.precio_unitario), fmt(i.subtotal)]),
+      styles:{ fontSize:6.5, cellPadding:1.2, textColor:[30,30,30] },
+      headStyles:{ fillColor:[30,126,52], textColor:255, fontStyle:'bold', fontSize:6.5 },
+      columnStyles:{
+        0:{cellWidth:9, halign:'center'},
+        1:{cellWidth:'auto'},
+        2:{cellWidth:18, halign:'right'},
+        3:{cellWidth:20, halign:'right'},
+      },
+      tableWidth: W-M*2,
     });
-    doc.text('Domicilio', M+5, y);
-    doc.text(fmt(pedido.domicilio || 0), W-M-3, y, {align:'right'});
-    y+=5;
-    y+=2; doc.line(M+3,y,W-M-3,y); y+=6;
-    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,126,52);
-    doc.text('Total pedido:', M+3, y);
-    doc.text(fmt(totalConDom), W-M-3, y, {align:'right'});
-    doc.setFontSize(8); doc.setTextColor(30,30,30);
-    y+=7;
-    pagos.forEach(p=>{
+
+    y = doc.lastAutoTable.finalY + 3;
+    doc.setDrawColor(30,126,52); doc.line(M, y, W-M, y); y += 4;
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(30,126,52);
+    doc.text('TOTAL:', M, y);
+    doc.text(fmt(total), W-M, y, {align:'right'});
+    y += 5;
+
+    if (pagos.length) {
+      doc.setFontSize(6.8); doc.setTextColor(30,30,30); doc.setFont('helvetica','bold');
+      doc.text('PAGOS:', M, y); y += 3.4;
       doc.setFont('helvetica','normal');
-      doc.text(`${p.tipo} (${p.metodo}):`, M+3, y, {maxWidth: W-M*2-40});
-      doc.text(fmt(p.monto), W-M-3, y, {align:'right'});
-      y+=5;
-    });
-    y+=2; doc.line(M+3,y,W-M-3,y); y+=7;
-    doc.setFont('helvetica','bold'); doc.setFontSize(9);
-    if(saldo>0){
+      pagos.forEach(p => {
+        doc.text(`- ${p.metodo} (${p.tipo}): ${fmt(p.monto)}`, M+1, y, {maxWidth: W-M*2-2});
+        y += 3.4;
+      });
+      y += 1;
+    }
+
+    doc.setDrawColor(220,220,220); doc.line(M, y, W-M, y); y += 4.5;
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    if (saldo > 0) {
       doc.setTextColor(200,80,0);
-      doc.text('Saldo pendiente:', M+3, y);
-      doc.text(fmt(saldo), W-M-3, y, {align:'right'});
+      doc.text('SALDO:', M, y);
+      doc.text(fmt(saldo), W-M, y, {align:'right'});
     } else {
       doc.setTextColor(30,126,52);
       doc.text('PAGADO COMPLETO', W/2, y, {align:'center'});
     }
-    doc.setTextColor(150,150,150); doc.setFontSize(7); doc.setFont('helvetica','normal');
+
     const mensajeLimpio = (config.mensaje||'').replace(/^\/+/, '').trim();
-    doc.text(mensajeLimpio, W/2, M+alturaCaja-4, {align:'center', maxWidth: W-M*2});
+    if (mensajeLimpio) {
+      doc.setTextColor(150,150,150); doc.setFontSize(6); doc.setFont('helvetica','normal');
+      doc.text(mensajeLimpio, W/2, 216-M, {align:'center', maxWidth: W-M*2});
+    }
   });
+
   doc.save(`Recibos_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
-// ── COTIZACIÓN (carta vertical) ─────────────────────────────────────────────
-export function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
+// ── COTIZACIÓN — con imagen pequeña por producto y paginación ──────────────
+export async function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
   if(!pedidos.length) return;
+
+  // Precargar todas las imágenes de productos que aparecen en estos pedidos
+  const todasLasUrls = pedidos.flatMap(p => (itemsPorPedido[p.id]||[]).map(i => i.imagen_url));
+  await preloadAllImages(todasLasUrls);
+
   const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'letter'});
+  const PAGE_H = 279;
+
   pedidos.forEach((pedido, idx) => {
     if (idx>0) doc.addPage('letter','portrait');
-    const M = 20;
+    const startPage = doc.internal.getNumberOfPages();
+    const M = 18;
     const items = itemsPorPedido[pedido.id] || [];
     let y = M;
 
-    doc.setTextColor(30,126,52); doc.setFontSize(20); doc.setFont('helvetica','bold');
+    doc.setTextColor(30,126,52); doc.setFontSize(18); doc.setFont('helvetica','bold');
     doc.text(config.nombre_negocio||'Natilla Medellín', M, y);
     y += 5;
-    doc.setFontSize(9); doc.setTextColor(120,120,120); doc.setFont('helvetica','normal');
+    doc.setFontSize(8.5); doc.setTextColor(120,120,120); doc.setFont('helvetica','normal');
     doc.text(config.mensaje||'Calidad, frescura y cumplimiento', M, y);
-    y += 14;
+    y += 12;
 
-    doc.setTextColor(30,30,30); doc.setFontSize(10);
+    doc.setTextColor(30,30,30); doc.setFontSize(9.5);
     const fecha = new Date(pedido.fecha_registro||Date.now());
     const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     doc.text(`Medellín, ${fecha.getDate()} de ${meses[fecha.getMonth()]} de ${fecha.getFullYear()}`, M, y);
+    y += 8;
+    doc.setFont('helvetica','bold'); doc.text('Cliente:', M, y); doc.setFont('helvetica','normal'); doc.text(pedido.nombre_empresa||'', M+20, y);
     y += 10;
-    doc.setFont('helvetica','bold'); doc.text('Cliente:', M, y); doc.setFont('helvetica','normal'); doc.text(pedido.nombre_empresa||'', M+22, y);
-    y += 12;
 
-    doc.setFont('helvetica','bold'); doc.setFontSize(12);
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
     doc.text('COTIZACIÓN', M, y);
-    y += 10;
+    y += 8;
 
     doc.autoTable({
       startY: y,
-      margin: {left:M, right:M},
-      head:[['CANT.','PRODUCTO','VR. UNITARIO','VR. TOTAL']],
-      body: items.map(i=>[i.cantidad, i.nombre_producto, fmt(i.precio_unitario), fmt(i.subtotal)]),
-      foot: [
-        ['','','Valor domicilio', fmt(pedido.domicilio || 0)],
-        ['','','TOTAL', fmt(totalPedido(items, pedido.domicilio))],
-      ],
-      styles:{fontSize:10, cellPadding:4},
+      margin: {left:M, right:M, bottom: 20},
+      head:[['','CANT.','PRODUCTO','VR. UNITARIO','VR. TOTAL']],
+      body: items.map(i=>['', i.cantidad, i.nombre_producto, fmt(i.precio_unitario), fmt(i.subtotal)]),
+      foot: [['','','','TOTAL', fmt(totalPedido(items))]],
+      styles:{fontSize:9, cellPadding:3, minCellHeight:9},
       headStyles:{fillColor:[30,126,52], textColor:255, fontStyle:'bold'},
       footStyles:{fontStyle:'bold', fillColor:[240,248,240], textColor:[30,30,30]},
-      columnStyles:{0:{cellWidth:22,halign:'center'},2:{cellWidth:40,halign:'right'},3:{cellWidth:40,halign:'right'}},
+      columnStyles:{
+        0:{cellWidth:11},
+        1:{cellWidth:16,halign:'center'},
+        3:{cellWidth:32,halign:'right'},
+        4:{cellWidth:32,halign:'right'},
+      },
+      didDrawCell: (data) => {
+        if (data.section === 'body' && data.column.index === 0) {
+          const item = items[data.row.index];
+          const dataUrl = item && imageCache.get(item.imagen_url);
+          const dim = item && dimCache.get(item.imagen_url);
+          if (dataUrl) {
+            try {
+              const box = dim ? fitBox(dim.w, dim.h, 7) : {w:7,h:7};
+              doc.addImage(dataUrl, detectFormat(dataUrl), data.cell.x + (data.cell.width-box.w)/2, data.cell.y + (data.cell.height-box.h)/2, box.w, box.h);
+            } catch(e) {}
+          }
+        }
+      },
     });
 
-    let fy = doc.lastAutoTable.finalY + 14;
-    doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
-    doc.text('- Somos persona natural (no somos responsables de IVA)', M, fy); fy += 6;
-    doc.text(`- Domicilio: ${fmt(pedido.domicilio || 0)}`, M, fy); fy += 20;
+    let fy = doc.lastAutoTable.finalY + 12;
+    if (fy > PAGE_H - 40) { doc.addPage('letter','portrait'); fy = M; }
+    doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
+    doc.text('- Somos persona natural (no somos responsables de IVA)', M, fy); fy += 14;
 
-    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(30,30,30);
     doc.text(config.nombre_negocio||'', M, fy); fy += 5;
     if (config.nit) { doc.text(`NIT. ${config.nit}`, M, fy); fy += 5; }
     if (config.telefono) { doc.text(`Cel. ${config.telefono}`, M, fy); }
+
+    // Numeración "Hoja X de Y" — solo relativa a las páginas de ESTA cotización
+    const endPage = doc.internal.getNumberOfPages();
+    const totalPaginasPedido = endPage - startPage + 1;
+    if (totalPaginasPedido > 1) {
+      for (let pg = startPage; pg <= endPage; pg++) {
+        doc.setPage(pg);
+        doc.setFontSize(8); doc.setTextColor(140,140,140); doc.setFont('helvetica','normal');
+        doc.text(`Hoja ${pg-startPage+1} de ${totalPaginasPedido}`, 216/2, PAGE_H-10, {align:'center'});
+      }
+    }
   });
+
   doc.save(`Cotizacion_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
@@ -287,7 +409,7 @@ export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
     if (idx>0) doc.addPage('letter','portrait');
     const W = 216, M = 25;
     const items = itemsPorPedido[pedido.id] || [];
-    const total = totalPedido(items, pedido.domicilio);
+    const total = totalPedido(items);
     let y = M;
 
     doc.setTextColor(30,126,52); doc.setFontSize(20); doc.setFont('helvetica','bold');
@@ -312,13 +434,12 @@ export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
     if (pedido.numero_documento) { doc.text(`${pedido.tipo_documento||'Doc.'}: ${pedido.numero_documento}`, W/2, y, {align:'center'}); y += 6; }
     y += 14;
 
-    const numeroEnLetras = fmt(total);
     doc.setTextColor(30,126,52); doc.setFont('helvetica','bold'); doc.setFontSize(14);
-    doc.text(`LA SUMA DE: ${numeroEnLetras}`, M, y, {maxWidth: W-M*2}); y += 9;
+    doc.text(`LA SUMA DE: ${fmt(total)}`, M, y, {maxWidth: W-M*2}); y += 9;
     doc.setTextColor(30,30,30);
     const conceptoLineas = items.map(i=>`${i.cantidad}x ${i.nombre_producto}`).join(', ');
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(`POR CONCEPTO DE: ${conceptoLineas} + domicilio (${fmt(pedido.domicilio || 0)})`, M, y, {maxWidth: W-M*2});
+    doc.text(`POR CONCEPTO DE: ${conceptoLineas}`, M, y, {maxWidth: W-M*2});
     y += 24;
 
     doc.setFontSize(9);
@@ -345,7 +466,6 @@ export function exportarExcel(pedidos, pagos) {
     'Teléfono': p.telefono,
     'Dirección': p.direccion,
     'Observaciones': p.observaciones || '',
-    'Domicilio': p.domicilio || 0,
     'Estado': p.estado || '',
   }));
   const wb = XLSX.utils.book_new();

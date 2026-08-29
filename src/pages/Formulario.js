@@ -55,8 +55,11 @@ export default function Formulario() {
       if (error) throw error;
       const items = selected.map(p => {
         const precio = parseFloat(p.precio) || 0;
-        return { pedido_id: pedido.id, producto_id: p.id, nombre_producto: p.nombre, cantidad: qtys[p.id], precio_unitario: precio, subtotal: precio * qtys[p.id] };
+        return { pedido_id: pedido.id, producto_id: p.id, nombre_producto: p.nombre, imagen_url: p.imagen_url || null, cantidad: qtys[p.id], precio_unitario: precio, subtotal: precio * qtys[p.id] };
       });
+      // El domicilio siempre queda cargado como un item más del pedido (precio inicial 0,
+      // el negocio lo ajusta después desde el panel de Pedidos)
+      items.push({ pedido_id: pedido.id, producto_id: null, nombre_producto: 'Domicilio', imagen_url: null, cantidad: 1, precio_unitario: 0, subtotal: 0 });
       await supabase.from('pedido_items').insert(items);
 
       const lineas = selected.map(p => `• ${p.nombre}: ${qtys[p.id]} und`).join('\n');

@@ -21,6 +21,26 @@ export default function Configuracion() {
   }, []);
 
   const fetchProductos = () => supabase.from('productos').select('*').order('orden').then(({ data }) => setProductos(data||[]));
+
+  const agregarProducto = async () => {
+    if (productos.length >= 100) { toast('Máximo 100 productos permitidos', 'error'); return; }
+    const maxOrden = productos.reduce((m,p)=>Math.max(m, p.orden||0), 0);
+    const { error } = await supabase.from('productos').insert([{
+      nombre: 'Nuevo producto', descripcion: '', precio: 0, orden: maxOrden+1, activo: true,
+    }]);
+    if (error) { toast('Error: '+error.message, 'error'); return; }
+    toast('✅ Producto agregado, edítalo abajo');
+    fetchProductos();
+  };
+
+  const eliminarProducto = async (id, nombre) => {
+    if (!window.confirm(`¿Eliminar el producto "${nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('productos').delete().eq('id', id);
+    if (error) { toast('Error al eliminar: '+error.message, 'error'); return; }
+    toast('🗑️ Producto eliminado');
+    fetchProductos();
+  };
+
   const fetchDomiciliarios = () => supabase.from('domiciliarios').select('*').order('nombre').then(({ data }) => setDomiciliarios(data||[]));
 
   const saveConfig = async () => {
@@ -141,7 +161,13 @@ export default function Configuracion() {
 
       {/* Productos */}
       <div className="card">
-        <div className="card-title">Productos del catálogo</div>
+        <div className="card-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',border:'none',marginBottom:8,paddingBottom:0}}>
+          <span>Productos del catálogo ({productos.length}/100)</span>
+          <button className="btn btn-green" style={{padding:'5px 12px'}} onClick={agregarProducto} disabled={productos.length>=100}>
+            <Plus size={13}/> Agregar producto
+          </button>
+        </div>
+        <div style={{borderBottom:'1px solid #e0e0e0',marginBottom:12}}></div>
         <div className="tbl-wrap">
           <table>
             <thead>
@@ -188,6 +214,9 @@ export default function Configuracion() {
                       </button>
                       <button className="btn" style={{padding:'3px 8px',fontSize:11,justifyContent:'center'}} onClick={()=>toggleProducto(p.id,p.activo)}>
                         {p.activo?<UserX size={12}/>:<UserCheck size={12}/>} {p.activo?'Desactivar':'Activar'}
+                      </button>
+                      <button className="btn btn-danger" style={{padding:'3px 8px',fontSize:11,justifyContent:'center'}} onClick={()=>eliminarProducto(p.id,p.nombre)}>
+                        <Trash2 size={12}/> Eliminar
                       </button>
                     </div>
                   </td>

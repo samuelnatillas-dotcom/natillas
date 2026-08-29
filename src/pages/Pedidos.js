@@ -63,7 +63,7 @@ export default function Pedidos() {
     return true;
   });
 
-  const totalConDomicilio = p => (items[p.id]||[]).reduce((s,i)=>s+(i.subtotal||0),0) + (parseFloat(p.domicilio)||0);
+  const totalConDomicilio = p => (items[p.id]||[]).reduce((s,i)=>s+(i.subtotal||0),0);
   const totalVentas = filtered.reduce((s, p) => s + totalConDomicilio(p), 0);
 
   const selPedidos = filtered.filter(p => sel.has(p.id));
@@ -88,7 +88,6 @@ export default function Pedidos() {
       estado: editData.estado,
       domiciliario_id: editData.domiciliario_id || null,
       observaciones: editData.observaciones,
-      domicilio: parseFloat(editData.domicilio) || 0,
     }).eq('id', editId);
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     for (const item of editItems) {
@@ -121,7 +120,6 @@ export default function Pedidos() {
       'Documento': `${p.tipo_documento||''} ${p.numero_documento||''}`,
       'Dirección': p.direccion,
       'Productos': (items[p.id]||[]).map(i=>`${i.cantidad}x ${i.nombre_producto}`).join(' | '),
-      'Domicilio': p.domicilio || 0,
       'Total': totalConDomicilio(p),
       'Observaciones': p.observaciones || '',
       'Anticipo': p.tiene_anticipo ? 'Sí' : 'No',
@@ -147,17 +145,18 @@ export default function Pedidos() {
     const data = (selPedidos.length?selPedidos:filtered).map(p => ({
       'No.': p.consecutivo, 'Empresa': p.nombre_empresa, 'Dirección': p.direccion, 'Teléfono': p.telefono,
       'Productos': (items[p.id]||[]).map(i=>`${i.cantidad}x ${i.nombre_producto}`).join(' | '),
-      'Domicilio': p.domicilio||0, 'Total': totalConDomicilio(p), 'Mensajero': p.domiciliarios?.nombre||'', 'Estado': p.estado,
+      'Total': totalConDomicilio(p), 'Mensajero': p.domiciliarios?.nombre||'', 'Estado': p.estado,
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Ordenes');
     XLSX.writeFile(wb, `Ordenes_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
-  const accionMasiva = (fn, nombre) => {
+  const accionMasiva = async (fn, nombre) => {
     const peds = selPedidos.length ? selPedidos : filtered;
     if (!peds.length) { toast('No hay pedidos para procesar', 'error'); return; }
-    fn(peds, items, config);
+    toast(`Generando ${nombre}...`);
+    await fn(peds, items, config);
     toast(`✅ ${nombre} generado (${peds.length})`);
   };
 
@@ -243,7 +242,6 @@ export default function Pedidos() {
                 <th>Productos</th>
                 <th>F. Entrega</th>
                 <th>Hora</th>
-                <th>Domicilio</th>
                 <th>Total</th>
                 <th>Mensajero</th>
                 <th>Estado</th>
@@ -272,8 +270,7 @@ export default function Pedidos() {
                     </td>
                     <td><input className="ie-input" type="date" value={editData.fecha_entrega||''} onChange={e=>setEditData(d=>({...d,fecha_entrega:e.target.value}))} /></td>
                     <td><input className="ie-input" type="time" value={editData.hora_entrega||''} onChange={e=>setEditData(d=>({...d,hora_entrega:e.target.value}))} /></td>
-                    <td><input className="ie-input" type="number" value={editData.domicilio||''} onChange={e=>setEditData(d=>({...d,domicilio:e.target.value}))} style={{width:80}} placeholder="0" /></td>
-                    <td className="td-right">{fmt(editItems.reduce((s,i)=>s+(i.cantidad||0)*(i.precio_unitario||0),0) + (parseFloat(editData.domicilio)||0))}</td>
+                    <td className="td-right">{fmt(editItems.reduce((s,i)=>s+(i.cantidad||0)*(i.precio_unitario||0),0))}</td>
                     <td>
                       <select className="ie-input" value={editData.domiciliario_id||''} onChange={e=>setEditData(d=>({...d,domiciliario_id:e.target.value}))}>
                         <option value="">— sin asignar —</option>
@@ -306,8 +303,7 @@ export default function Pedidos() {
                     </td>
                     <td>{fmtDate(p.fecha_entrega)}</td>
                     <td>{p.hora_entrega?p.hora_entrega.slice(0,5):'-'}</td>
-                    <td className="td-right">{p.domicilio > 0 ? fmt(p.domicilio) : '-'}</td>
-                    <td className="td-right td-bold">{fmt(totalProd + (parseFloat(p.domicilio)||0))}</td>
+                    <td className="td-right td-bold">{fmt(totalProd)}</td>
                     <td>{p.domiciliarios?.nombre||'-'}</td>
                     <td><span className={`badge ${ESTADO_BADGE[p.estado]||'badge-gray'}`}>{p.estado}</span></td>
                     <td className="td-center">{p.tiene_anticipo?<span className="badge badge-green">Sí</span>:'No'}</td>
