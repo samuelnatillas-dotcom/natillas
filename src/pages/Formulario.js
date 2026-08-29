@@ -8,6 +8,7 @@ export default function Formulario() {
   const [form, setForm] = useState({ email:'', nombre_empresa:'', tipo_documento:'', numero_documento:'', nombre_contacto:'', telefono:'', fecha_entrega:'', hora_entrega:'', direccion:'', observaciones:'', tiene_anticipo:null });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [pedidoCreado, setPedidoCreado] = useState(null);
 
   useEffect(() => {
     supabase.from('productos').select('*').eq('activo', true).order('orden').then(({ data }) => {
@@ -66,6 +67,7 @@ export default function Formulario() {
       const wa = config.whatsapp || process.env.REACT_APP_WHATSAPP || '573195122754';
       const msg = `🍮 *NUEVO PEDIDO #${String(pedido.consecutivo).padStart(4,'0')} - Natilla Medellín*\n\n👤 Empresa: ${form.nombre_empresa}\n📄 ${form.tipo_documento}: ${form.numero_documento}\n👤 Contacto: ${form.nombre_contacto}\n📧 Email: ${form.email}\n\n🛒 *Productos:*\n${lineas}\n📦 Total: ${totalUnd} unidades\n\n📅 Fecha entrega: ${form.fecha_entrega}\n⏰ Hora: ${form.hora_entrega}\n📞 Teléfono: ${form.telefono}\n📍 Dirección: ${form.direccion}${form.observaciones?'\n📝 Obs: '+form.observaciones:''}\n💰 Anticipo: ${form.tiene_anticipo==='si'?'Sí':'No'}`;
       window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, '_blank');
+      setPedidoCreado(pedido.consecutivo);
       setSent(true);
     } catch(e) { alert('Error al enviar el pedido: ' + e.message); }
     setSending(false);
@@ -78,8 +80,15 @@ export default function Formulario() {
       <div style={{ ...s.card, textAlign:'center', maxWidth:400 }}>
         <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
         <h2 style={{ fontSize:18, fontWeight:400, color:'#3c4043', marginBottom:8 }}>¡Pedido enviado!</h2>
+        {pedidoCreado && (
+          <div style={{ background:'#e6f4ea', border:'1.5px solid #ceead6', borderRadius:8, padding:'12px 16px', marginBottom:16 }}>
+            <div style={{ fontSize:12, color:'#5f6368' }}>Tu número de pedido es</div>
+            <div style={{ fontSize:24, fontWeight:700, color:'#1e7e34' }}>#{String(pedidoCreado).padStart(4,'0')}</div>
+            <div style={{ fontSize:11, color:'#5f6368', marginTop:4 }}>Guárdalo para cualquier consulta</div>
+          </div>
+        )}
         <p style={{ fontSize:13, color:'#5f6368', marginBottom:20 }}>Tu pedido fue registrado y el resumen fue enviado por WhatsApp. Pronto nos comunicaremos contigo.</p>
-        <button onClick={() => { setSent(false); setQtys({}); setForm({ email:'', nombre_empresa:'', tipo_documento:'', numero_documento:'', nombre_contacto:'', telefono:'', fecha_entrega:'', hora_entrega:'', direccion:'', observaciones:'', tiene_anticipo:null }); }} style={{ padding:'10px 24px', background:'#1e7e34', color:'#fff', border:'none', borderRadius:6, fontSize:14, cursor:'pointer' }}>
+        <button onClick={() => { setSent(false); setPedidoCreado(null); setQtys({}); setForm({ email:'', nombre_empresa:'', tipo_documento:'', numero_documento:'', nombre_contacto:'', telefono:'', fecha_entrega:'', hora_entrega:'', direccion:'', observaciones:'', tiene_anticipo:null }); }} style={{ padding:'10px 24px', background:'#1e7e34', color:'#fff', border:'none', borderRadius:6, fontSize:14, cursor:'pointer' }}>
           Hacer otro pedido
         </button>
       </div>
@@ -142,7 +151,7 @@ export default function Formulario() {
         {/* Anticipo */}
         <div style={s.card}>
           <div style={s.cardTitle}>¿Tienes anticipo?</div>
-          <p style={{ fontSize:13, color:'#5f6368', lineHeight:1.6, marginBottom:12 }}>Para pedidos mayores a 100 unidades debes enviar el comprobante del anticipo por WhatsApp antes de registrar el pedido.</p>
+          <p style={{ fontSize:13, color:'#5f6368', lineHeight:1.6, marginBottom:12 }}><strong>Recuerda:</strong> para pedidos mayores a 100 unidades debes enviar por WhatsApp el comprobante del anticipo para registrar el pedido, informando el nombre con que quedó registrado este pedido para poder descargarlo en el sistema.</p>
           <div style={{ display:'flex', gap:10 }}>
             {['si','no'].map(v => (
               <div key={v} onClick={() => setForm(f=>({...f,tiene_anticipo:v}))} style={{ flex:1, padding:'10px', border:`1.5px solid ${form.tiene_anticipo===v?'#1e7e34':'#dadce0'}`, borderRadius:8, textAlign:'center', fontSize:14, color:form.tiene_anticipo===v?'#1e7e34':'#5f6368', fontWeight:form.tiene_anticipo===v?500:400, cursor:'pointer', background:form.tiene_anticipo===v?'#e6f4ea':'#fff' }}>
@@ -159,7 +168,7 @@ export default function Formulario() {
 
         {/* Aviso horarios */}
         <div style={{ background:'#fef9e7', border:'1px solid #fce8a2', borderRadius:8, padding:'11px 13px', fontSize:13, color:'#7d5a00', marginBottom:16, display:'flex', gap:8, lineHeight:1.5 }}>
-          ⚠️ <span>No laboramos domingos ni festivos. Sábados hasta las 2:00 p.m. Entregas a partir de las 8:00 a.m.</span>
+          ⚠️ <span>Ten presente que no laboramos domingos ni festivos. Sábados hasta las 2:00 p.m.</span>
         </div>
 
         {/* Fecha y hora */}
@@ -173,7 +182,11 @@ export default function Formulario() {
         <div style={s.card}>
           <div style={s.cardTitle}>Datos de entrega</div>
           <div style={{ marginBottom:16 }}><label style={s.label}>Teléfono de contacto <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="tel" name="telefono" value={form.telefono} onChange={handleChange} placeholder="300 000 0000" /></div>
-          <div style={{ marginBottom:16 }}><label style={s.label}>Dirección de entrega <span style={{color:'#d93025'}}>*</span></label><input style={s.input} type="text" name="direccion" value={form.direccion} onChange={handleChange} placeholder="Calle, carrera, barrio e indicaciones" /></div>
+          <div style={{ marginBottom:16 }}>
+            <label style={s.label}>Dirección de entrega <span style={{color:'#d93025'}}>*</span></label>
+            <input style={s.input} type="text" name="direccion" value={form.direccion} onChange={handleChange} placeholder="Calle, carrera, barrio e indicaciones" />
+            <p style={{ fontSize:11.5, color:'#9aa0a6', marginTop:5, lineHeight:1.4 }}>Valida que la dirección esté bien escrita y al final puedes darnos indicaciones del lugar</p>
+          </div>
           <div><label style={s.label}>Observaciones</label><input style={s.input} type="text" name="observaciones" value={form.observaciones} onChange={handleChange} placeholder="Instrucciones especiales para tu pedido..." /></div>
         </div>
 
@@ -192,6 +205,12 @@ export default function Formulario() {
             </div>
           </div>
         )}
+
+        <div style={{ background:'#fef9e7', border:'1px solid #fce8a2', borderRadius:8, padding:'14px 16px', marginBottom:16, fontSize:13, color:'#7d5a00', lineHeight:1.7 }}>
+          <div style={{ fontWeight:600, marginBottom:6 }}>Por favor revisa que toda la información esté bien antes de enviar</div>
+          <div>📌 El valor de la compra debe estar cancelado al momento de la entrega.</div>
+          <div>📌 Si no vas a consumir todo el producto el mismo día (natilla o manjar) lo debes refrigerar.</div>
+        </div>
 
         <button onClick={enviar} disabled={sending} style={{ width:'100%', padding:14, background:'#1e7e34', color:'#fff', border:'none', borderRadius:8, fontSize:15, fontWeight:500, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
           {sending ? 'Enviando...' : '📲 Enviar pedido por WhatsApp'}
