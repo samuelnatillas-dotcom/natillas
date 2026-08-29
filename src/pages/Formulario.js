@@ -66,6 +66,30 @@ export default function Formulario() {
       const lineas = selected.map(p => `• ${p.nombre}: ${qtys[p.id]} und`).join('\n');
       const wa = config.whatsapp || process.env.REACT_APP_WHATSAPP || '573195122754';
       const msg = `🍮 *NUEVO PEDIDO #${String(pedido.consecutivo).padStart(4,'0')} - Natilla Medellín*\n\n👤 Empresa: ${form.nombre_empresa}\n📄 ${form.tipo_documento}: ${form.numero_documento}\n👤 Contacto: ${form.nombre_contacto}\n📧 Email: ${form.email}\n\n🛒 *Productos:*\n${lineas}\n📦 Total: ${totalUnd} unidades\n\n📅 Fecha entrega: ${form.fecha_entrega}\n⏰ Hora: ${form.hora_entrega}\n📞 Teléfono: ${form.telefono}\n📍 Dirección: ${form.direccion}${form.observaciones?'\n📝 Obs: '+form.observaciones:''}\n💰 Anticipo: ${form.tiene_anticipo==='si'?'Sí':'No'}`;
+
+      // Enviar correo de confirmación al cliente vía Google Apps Script (no bloqueante)
+      const appsScriptUrl = process.env.REACT_APP_APPSCRIPT_URL;
+      if (appsScriptUrl) {
+        const productosTexto = selected.map(p => `- ${p.nombre}: ${qtys[p.id]} und`).join('\n');
+        fetch(appsScriptUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            email: form.email,
+            nombre_empresa: form.nombre_empresa,
+            tipo_documento: form.tipo_documento,
+            numero_documento: form.numero_documento,
+            nombre_contacto: form.nombre_contacto,
+            telefono: form.telefono,
+            direccion: form.direccion,
+            fecha_entrega: form.fecha_entrega,
+            hora_entrega: form.hora_entrega,
+            observaciones: form.observaciones,
+            tiene_anticipo: form.tiene_anticipo === 'si',
+            productos_texto: productosTexto,
+          }),
+        }).catch(() => {}); // Si falla el correo, no interrumpe el flujo del pedido
+      }
+
       window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, '_blank');
       setPedidoCreado(pedido.consecutivo);
       setSent(true);
