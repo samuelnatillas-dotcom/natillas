@@ -128,18 +128,21 @@ async function prepararLogo(config) {
 function renderHeader(doc, config, logo, x, y, fontScale = 1) {
   const startY = y;
   if (logo) {
-    try { doc.addImage(logo.dataUrl, logo.format, x, y - logo.box.h * 0.65, logo.box.w, logo.box.h); } catch(e) {}
+    try { doc.addImage(logo.dataUrl, logo.format, x, y - logo.box.h * 0.62, logo.box.w, logo.box.h); } catch(e) {}
   }
   const xTexto = logo ? x + logo.box.w + 3 : x;
   doc.setTextColor(30,126,52); doc.setFont('helvetica','bold'); doc.setFontSize(11 * fontScale);
   doc.text(config.nombre_negocio || 'Natilla Medellín', xTexto, y);
   y += 4 * fontScale;
-  doc.setFont('helvetica','normal'); doc.setFontSize(7.5 * fontScale); doc.setTextColor(90,90,90);
-  if (config.nit) { doc.text(`NIT: ${config.nit}`, xTexto, y); y += 3.4 * fontScale; }
-  if (config.direccion) { doc.text(config.direccion, xTexto, y); y += 3.4 * fontScale; }
-  if (config.telefono || config.email) { doc.text(`${config.telefono||''}  ${config.email||''}`, xTexto, y); y += 3.4 * fontScale; }
-  const logoBottom = logo ? startY - logo.box.h * 0.65 + logo.box.h : startY;
-  return Math.max(y, logoBottom) + 2;
+  doc.setFont('helvetica','normal'); doc.setFontSize(7 * fontScale); doc.setTextColor(90,90,90);
+  // Línea 2: NIT + Dirección combinados
+  const linea2 = [config.nit ? `NIT: ${config.nit}` : '', config.direccion ? `Dirección: ${config.direccion}` : ''].filter(Boolean).join('   ');
+  if (linea2) { doc.text(linea2, xTexto, y); y += 3.3 * fontScale; }
+  // Línea 3: Teléfono + Email combinados
+  const linea3 = [config.telefono ? `Tel: ${config.telefono}` : '', config.email || ''].filter(Boolean).join('   ');
+  if (linea3) { doc.text(linea3, xTexto, y); y += 3.3 * fontScale; }
+  const logoBottom = logo ? startY - logo.box.h * 0.62 + logo.box.h : startY;
+  return Math.max(y, logoBottom) + 1.5;
 }
 
 const dimCache = new Map();
@@ -403,11 +406,11 @@ export async function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
   pedidos.forEach((pedido, idx) => {
     if (idx>0) doc.addPage('letter','portrait');
     const startPage = doc.internal.getNumberOfPages();
-    const M = 18;
+    const M = 14;
     const items = itemsPorPedido[pedido.id] || [];
 
-    let y = renderHeader(doc, config, logo, M, M+8, 1.3);
-    y += 4;
+    let y = renderHeader(doc, config, logo, M, M+8, 1.2);
+    y += 3;
 
     doc.setTextColor(30,30,30); doc.setFontSize(9.5);
     const fecha = new Date(pedido.fecha_registro||Date.now());
@@ -483,12 +486,12 @@ export async function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
   const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'letter'});
   pedidos.forEach((pedido, idx) => {
     if (idx>0) doc.addPage('letter','portrait');
-    const M = 22;
+    const M = 16;
     const items = itemsPorPedido[pedido.id] || [];
     const total = totalPedido(items);
 
-    let y = renderHeader(doc, config, logo, M, M+8, 1.3);
-    y += 6;
+    let y = renderHeader(doc, config, logo, M, M+8, 1.2);
+    y += 5;
 
     doc.setTextColor(30,30,30); doc.setFontSize(13); doc.setFont('helvetica','bold');
     doc.text('CUENTA DE COBRO', 216/2, y, {align:'center'});
