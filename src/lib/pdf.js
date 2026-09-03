@@ -111,6 +111,37 @@ function fitBox(natW, natH, maxSize) {
   if (ratio >= 1) return { w: maxSize, h: maxSize / ratio };
   return { w: maxSize * ratio, h: maxSize };
 }
+
+// ── Encabezado uniforme para TODOS los documentos ───────────────────────────
+// Precarga el logo una sola vez (llamar await antes de generar cualquier PDF)
+async function prepararLogo(config) {
+  if (!config.logo_url) return null;
+  const dataUrl = await loadImageDataUrl(config.logo_url);
+  if (!dataUrl) return null;
+  const dim = await getImageDimensions(dataUrl);
+  const box = fitBox(dim.w, dim.h, 14);
+  return { dataUrl, format: detectFormat(dataUrl), box };
+}
+
+// Dibuja: [logo] Nombre negocio / NIT / dirección / tel · email — compacto.
+// Devuelve el "y" final para continuar el documento debajo del encabezado.
+function renderHeader(doc, config, logo, x, y, fontScale = 1) {
+  const startY = y;
+  if (logo) {
+    try { doc.addImage(logo.dataUrl, logo.format, x, y - logo.box.h * 0.65, logo.box.w, logo.box.h); } catch(e) {}
+  }
+  const xTexto = logo ? x + logo.box.w + 3 : x;
+  doc.setTextColor(30,126,52); doc.setFont('helvetica','bold'); doc.setFontSize(11 * fontScale);
+  doc.text(config.nombre_negocio || 'Natilla Medellín', xTexto, y);
+  y += 4 * fontScale;
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5 * fontScale); doc.setTextColor(90,90,90);
+  if (config.nit) { doc.text(`NIT: ${config.nit}`, xTexto, y); y += 3.4 * fontScale; }
+  if (config.direccion) { doc.text(config.direccion, xTexto, y); y += 3.4 * fontScale; }
+  if (config.telefono || config.email) { doc.text(`${config.telefono||''}  ${config.email||''}`, xTexto, y); y += 3.4 * fontScale; }
+  const logoBottom = logo ? startY - logo.box.h * 0.65 + logo.box.h : startY;
+  return Math.max(y, logoBottom) + 2;
+}
+
 const dimCache = new Map();
 async function preloadAllImages(urls) {
   const unicas = [...new Set(urls.filter(Boolean))];
@@ -121,21 +152,13 @@ async function preloadAllImages(urls) {
 }
 
 // ── ORDEN DE DESPACHO (remisión media carta horizontal) ─────────────────────
-function renderOrden(doc, pedido, items, config) {
+function renderOrden(doc, pedido, items, config, logo) {
   const W = 216, H = 140, M = 8;
   doc.setDrawColor(30, 126, 52);
   doc.setLineWidth(0.5);
   doc.rect(M, M, W-M*2, H-M*2);
 
-  doc.setFillColor(30, 126, 52);
-  doc.rect(M, M, 70, 20, 'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(11); doc.setFont('helvetica','bold');
-  doc.text(config.nombre_negocio||'Natilla Medellín', M+3, M+7);
-  doc.setFontSize(7); doc.setFont('helvetica','normal');
-  if(config.nit) doc.text('NIT: '+config.nit, M+3, M+12);
-  doc.text(config.telefono||'', M+3, M+16);
-  doc.text(config.email||'', M+3, M+19);
+  renderHeader(doc, config, logo, M+2, M+6);
 
   doc.setFillColor(240,248,240);
   doc.rect(W-M-50, M, 50, 20, 'F');
@@ -150,7 +173,7 @@ function renderOrden(doc, pedido, items, config) {
   doc.text(`Fecha: ${fr.getDate()}/${fr.getMonth()+1}/${fr.getFullYear()}`, W-M-50, M+22);
 
   doc.setTextColor(30,30,30); doc.setFontSize(8);
-  let y = M+27;
+  let y = M+25;
   doc.setFont('helvetica','bold'); doc.text('SEÑOR(ES):', M+2, y);
   doc.setFont('helvetica','normal'); doc.text(pedido.nombre_empresa||'', M+24, y);
   y+=5;
@@ -195,36 +218,39 @@ function renderOrden(doc, pedido, items, config) {
   }
 }
 
-export function imprimirOrdenes(pedidos, itemsPorPedido, config) {
+export async function imprimirOrdenes(pedidos, itemsPorPedido, config) {
   if(!pedidos.length) return;
+  const logo = await prepararLogo(config);
   const doc = new jsPDF({orientation:'landscape', unit:'mm', format:[216,140]});
   pedidos.forEach((p,i) => {
     if(i>0) doc.addPage([216,140],'landscape');
-    renderOrden(doc, p, itemsPorPedido[p.id]||[], config);
+    renderOrden(doc, p, itemsPorPedido[p.id]||[], config, logo);
   });
   doc.save(nombreArchivo('Orden', pedidos));
 }
 
 // ── COMANDA DE PRODUCCIÓN (media carta horizontal) ──────────────────────────
 // No incluye el item "Domicilio": la comanda es solo para cocina/producción.
-function renderComanda(doc, pedido, items, config) {
+function renderComanda(doc, pedido, items, config, logo) {
   const itemsProduccion = items.filter(i => i.nombre_producto !== 'Domicilio');
   const W = 216, H = 140, M = 8;
   doc.setDrawColor(30,126,52); doc.setLineWidth(0.5);
   doc.rect(M, M, W-M*2, H-M*2);
 
-  doc.setFillColor(30,126,52);
-  doc.rect(M, M, W-M*2, 16, 'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(12); doc.setFont('helvetica','bold');
-  doc.text('COMANDA DE PRODUCCIÓN', W/2, M+7, {align:'center'});
-  doc.setFontSize(8); doc.setFont('helvetica','normal');
-  doc.text(config.nombre_negocio||'Natilla Medellín', W/2, M+13, {align:'center'});
+  renderHeader(doc, config, logo, M+2, M+6);
+
+  doc.setFillColor(240,248,240);
+  doc.rect(W-M-50, M, 50, 20, 'F');
+  doc.setTextColor(30,126,52);
+  doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.text('COMANDA', W-M-25, M+7, {align:'center'});
+  doc.setFontSize(13);
+  doc.text(`No. ${String(pedido.consecutivo).padStart(4,'0')}`, W-M-25, M+16, {align:'center'});
 
   doc.setTextColor(30,30,30); doc.setFontSize(9);
-  let y = M+22;
+  let y = M+25;
   doc.setFont('helvetica','bold');
-  doc.text(`Pedido No. ${String(pedido.consecutivo).padStart(4,'0')}`, M+3, y);
+  doc.text('COMANDA DE PRODUCCIÓN', M+3, y);
   doc.setFont('helvetica','normal');
   doc.text(`Fecha entrega: ${fmtDate(pedido.fecha_entrega)}  Hora: ${pedido.hora_entrega?pedido.hora_entrega.slice(0,5):'-'}`, M+3, y+6);
   doc.text(`Cliente: ${pedido.nombre_empresa}`, M+3, y+12);
@@ -250,12 +276,13 @@ function renderComanda(doc, pedido, items, config) {
   }
 }
 
-export function imprimirComandas(pedidos, itemsPorPedido, config) {
+export async function imprimirComandas(pedidos, itemsPorPedido, config) {
   if(!pedidos.length) return;
+  const logo = await prepararLogo(config);
   const doc = new jsPDF({orientation:'landscape', unit:'mm', format:[216,140]});
   pedidos.forEach((p,i) => {
     if(i>0) doc.addPage([216,140],'landscape');
-    renderComanda(doc, p, itemsPorPedido[p.id]||[], config);
+    renderComanda(doc, p, itemsPorPedido[p.id]||[], config, logo);
   });
   doc.save(nombreArchivo('Comanda', pedidos));
 }
@@ -264,10 +291,7 @@ export function imprimirComandas(pedidos, itemsPorPedido, config) {
 export async function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, config) {
   if(!pedidos.length) return;
 
-  const logoDataUrl = config.logo_url ? await loadImageDataUrl(config.logo_url) : null;
-  const logoFormat = detectFormat(logoDataUrl);
-  const logoDim = logoDataUrl ? await getImageDimensions(logoDataUrl) : null;
-  const logoBox = logoDim ? fitBox(logoDim.w, logoDim.h, 12) : null;
+  const logo = await prepararLogo(config);
 
   const doc = new jsPDF({orientation:'portrait', unit:'mm', format:[140,216]});
 
@@ -280,22 +304,8 @@ export async function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, c
     const totalPagado = pagos.reduce((s,p)=>s+(p.monto||0),0);
     const saldo = total - totalPagado;
 
-    let y = M + 4;
+    let y = renderHeader(doc, config, logo, M, M+6, 0.82);
 
-    // Logo pequeño + datos del negocio, muy compacto
-    if (logoDataUrl && logoBox) {
-      try { doc.addImage(logoDataUrl, logoFormat, M, y-3, logoBox.w, logoBox.h); } catch(e) {}
-    }
-    const xTexto = logoDataUrl ? M+15 : M;
-    doc.setTextColor(30,30,30); doc.setFont('helvetica','bold'); doc.setFontSize(9);
-    doc.text(config.nombre_negocio||'Natilla Medellín', xTexto, y);
-    y += 4;
-    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(90,90,90);
-    if (config.nit) { doc.text(`NIT: ${config.nit}`, xTexto, y); y += 3.2; }
-    if (config.direccion) { doc.text(config.direccion, xTexto, y); y += 3.2; }
-    if (config.telefono || config.email) { doc.text(`${config.telefono||''}  ${config.email||''}`, xTexto, y); y += 3.2; }
-
-    y = Math.max(y, M + 14) + 2;
     doc.setDrawColor(30,126,52); doc.setLineWidth(0.4);
     doc.line(M, y, W-M, y); y += 4;
 
@@ -304,18 +314,21 @@ export async function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, c
     doc.text(`No. ${String(pedido.consecutivo).padStart(4,'0')}`, W-M, y, {align:'right'});
     y += 4.5;
 
-    doc.setFontSize(6.8); doc.setTextColor(30,30,30);
-    const campo = (l,v) => { doc.setFont('helvetica','bold'); doc.text(l,M,y); doc.setFont('helvetica','normal'); doc.text(String(v||''), M+26, y, {maxWidth: W-M*2-26}); y += 3.6; };
-    campo('NIT/CC:', `${pedido.tipo_documento||''} ${pedido.numero_documento||''}`);
-    campo('Cliente:', pedido.nombre_empresa);
-    campo('Contacto:', pedido.nombre_contacto);
-    campo('Tel. recibe:', pedido.telefono);
-    campo('Dirección:', pedido.direccion);
-    campo('F. entrega:', fmtDate(pedido.fecha_entrega));
-    campo('Hora:', pedido.hora_entrega ? pedido.hora_entrega.slice(0,5) : '');
-
-    y += 1.5;
-    doc.setDrawColor(220,220,220); doc.line(M, y, W-M, y); y += 4;
+    // Datos del cliente en tabla de 2 columnas — mucho más compacto en vertical
+    doc.autoTable({
+      startY: y,
+      margin: {left:M, right:M},
+      theme: 'grid',
+      body: [
+        [`NIT/CC: ${pedido.tipo_documento||''} ${pedido.numero_documento||''}`, `Fecha Generación: ${fmtDate(new Date().toISOString().slice(0,10))}`],
+        [`Cliente: ${pedido.nombre_empresa||''}`, `Dirección: ${pedido.direccion||''}`],
+        [`Contacto: ${pedido.nombre_contacto||''}`, `F. entrega: ${fmtDate(pedido.fecha_entrega)}`],
+        [`Tel. recibe: ${pedido.telefono||''}`, `Hora: ${pedido.hora_entrega?pedido.hora_entrega.slice(0,5):''}`],
+      ],
+      styles: { fontSize:6.2, cellPadding:1.6, textColor:[30,30,30], lineColor:[220,220,220], lineWidth:0.2 },
+      columnStyles: { 0:{cellWidth:(W-M*2)/2}, 1:{cellWidth:(W-M*2)/2} },
+    });
+    y = doc.lastAutoTable.finalY + 4;
 
     // Tabla ultra compacta
     doc.autoTable({
@@ -382,6 +395,7 @@ export async function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
   // Precargar todas las imágenes de productos que aparecen en estos pedidos
   const todasLasUrls = pedidos.flatMap(p => (itemsPorPedido[p.id]||[]).map(i => i.imagen_url));
   await preloadAllImages(todasLasUrls);
+  const logo = await prepararLogo(config);
 
   const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'letter'});
   const PAGE_H = 279;
@@ -391,14 +405,9 @@ export async function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
     const startPage = doc.internal.getNumberOfPages();
     const M = 18;
     const items = itemsPorPedido[pedido.id] || [];
-    let y = M;
 
-    doc.setTextColor(30,126,52); doc.setFontSize(18); doc.setFont('helvetica','bold');
-    doc.text(config.nombre_negocio||'Natilla Medellín', M, y);
-    y += 5;
-    doc.setFontSize(8.5); doc.setTextColor(120,120,120); doc.setFont('helvetica','normal');
-    doc.text(config.mensaje||'Calidad, frescura y cumplimiento', M, y);
-    y += 12;
+    let y = renderHeader(doc, config, logo, M, M+8, 1.3);
+    y += 4;
 
     doc.setTextColor(30,30,30); doc.setFontSize(9.5);
     const fecha = new Date(pedido.fecha_registro||Date.now());
@@ -468,31 +477,27 @@ export async function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
 }
 
 // ── CUENTA DE COBRO (carta vertical) ────────────────────────────────────────
-export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
+export async function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
   if(!pedidos.length) return;
+  const logo = await prepararLogo(config);
   const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'letter'});
   pedidos.forEach((pedido, idx) => {
     if (idx>0) doc.addPage('letter','portrait');
-    const W = 216, M = 22;
+    const M = 22;
     const items = itemsPorPedido[pedido.id] || [];
     const total = totalPedido(items);
-    let y = M;
 
-    doc.setTextColor(30,126,52); doc.setFontSize(20); doc.setFont('helvetica','bold');
-    doc.text(config.nombre_negocio||'Natilla Medellín', W/2, y, {align:'center'});
-    y += 5;
-    doc.setFontSize(9); doc.setTextColor(120,120,120); doc.setFont('helvetica','normal');
-    doc.text(config.mensaje||'Calidad, frescura y cumplimiento', W/2, y, {align:'center'});
-    y += 14;
+    let y = renderHeader(doc, config, logo, M, M+8, 1.3);
+    y += 6;
 
     doc.setTextColor(30,30,30); doc.setFontSize(13); doc.setFont('helvetica','bold');
-    doc.text('CUENTA DE COBRO', W/2, y, {align:'center'});
+    doc.text('CUENTA DE COBRO', 216/2, y, {align:'center'});
     y += 9;
 
     const fecha = new Date(pedido.fecha_registro||Date.now());
     const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     doc.setFontSize(10); doc.setFont('helvetica','normal');
-    doc.text(`${meses[fecha.getMonth()]} ${fecha.getDate()} de ${fecha.getFullYear()}`, W/2, y, {align:'center'});
+    doc.text(`${meses[fecha.getMonth()]} ${fecha.getDate()} de ${fecha.getFullYear()}`, 216/2, y, {align:'center'});
     y += 12;
 
     // Datos del cliente (quien debe pagar)
@@ -506,15 +511,15 @@ export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
 
     // "Debe a" — siempre fijo, datos del negocio que recibe el pago
     doc.setFont('helvetica','bold'); doc.setFontSize(10);
-    doc.text('Debe a:', W/2, y, {align:'center'}); y += 6;
+    doc.text('Debe a:', 216/2, y, {align:'center'}); y += 6;
     doc.setFont('helvetica','normal');
-    doc.text('PAULA ANDREA GUTIERREZ SANTAMARIA', W/2, y, {align:'center'}); y += 5.5;
-    doc.text('NATILLA MEDELLIN', W/2, y, {align:'center'}); y += 5.5;
-    doc.text(`NIT. ${config.nit || '43.749.223-8'}`, W/2, y, {align:'center'}); y += 14;
+    doc.text('PAULA ANDREA GUTIERREZ SANTAMARIA', 216/2, y, {align:'center'}); y += 5.5;
+    doc.text('NATILLA MEDELLIN', 216/2, y, {align:'center'}); y += 5.5;
+    doc.text(`NIT. ${config.nit || '43.749.223-8'}`, 216/2, y, {align:'center'}); y += 14;
 
     // La suma de — en letras y números
     doc.setTextColor(30,126,52); doc.setFont('helvetica','bold'); doc.setFontSize(12);
-    doc.text(`LA SUMA DE: ${numeroALetras(total)} (${fmt(total)})`, M, y, {maxWidth: W-M*2}); y += 12;
+    doc.text(`LA SUMA DE: ${numeroALetras(total)} (${fmt(total)})`, M, y, {maxWidth: 216-M*2}); y += 12;
 
     doc.setTextColor(30,30,30); doc.setFont('helvetica','bold'); doc.setFontSize(10);
     doc.text('POR CONCEPTO DE:', M, y); y += 6;

@@ -173,7 +173,7 @@ export default function Pedidos() {
     const { data: pagos } = await supabase.from('pagos').select('*').in('pedido_id', peds.map(p=>p.id));
     const pagosPorPedido = {};
     (pagos||[]).forEach(pg => { if(!pagosPorPedido[pg.pedido_id]) pagosPorPedido[pg.pedido_id]=[]; pagosPorPedido[pg.pedido_id].push(pg); });
-    fn(peds, pagosPorPedido, items, config);
+    await fn(peds, pagosPorPedido, items, config);
     toast(`✅ ${nombre} generado (${peds.length})`);
   };
 
@@ -334,7 +334,7 @@ export default function Pedidos() {
     </div>
   );
 
-  function imprimirCuentasCobroWrapper(peds, pagosPorPedido, itemsArg, cfg) {
-    imprimirCuentasCobro(peds, itemsArg, cfg);
+  async function imprimirCuentasCobroWrapper(peds, pagosPorPedido, itemsArg, cfg) {
+    await imprimirCuentasCobro(peds, itemsArg, cfg);
   }
 }
