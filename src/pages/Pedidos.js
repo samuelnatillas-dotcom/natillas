@@ -23,6 +23,7 @@ export default function Pedidos() {
   const { toast, ToastContainer } = useToast();
 
   const [q, setQ] = useState('');
+  const [ordenHora, setOrdenHora] = useState(null); // null | 'asc' | 'desc'
   const [fFechaReg, setFechaReg] = useState('');
   const [fFechaEnt, setFechaEnt] = useState('');
   const [fEstado, setFEstado] = useState('');
@@ -61,6 +62,12 @@ export default function Pedidos() {
     if (fEstado && p.estado !== fEstado) return false;
     if (fDom && p.domiciliario_id !== fDom) return false;
     return true;
+  }).sort((a, b) => {
+    if (!ordenHora) return 0;
+    const ha = a.hora_entrega || '';
+    const hb = b.hora_entrega || '';
+    if (ordenHora === 'asc') return ha.localeCompare(hb);
+    return hb.localeCompare(ha);
   });
 
   const totalConDomicilio = p => (items[p.id]||[]).reduce((s,i)=>s+(i.subtotal||0),0);
@@ -241,7 +248,9 @@ export default function Pedidos() {
                 <th>Contacto</th>
                 <th>Productos</th>
                 <th>F. Entrega</th>
-                <th>Hora</th>
+                <th style={{cursor:'pointer', userSelect:'none'}} onClick={()=>setOrdenHora(o => o==='asc'?'desc':o==='desc'?null:'asc')}>
+                  Hora {ordenHora==='asc'?'▲':ordenHora==='desc'?'▼':'⇅'}
+                </th>
                 <th>Total</th>
                 <th>Mensajero</th>
                 <th>Estado</th>

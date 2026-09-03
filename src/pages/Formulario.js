@@ -9,7 +9,7 @@ export default function Formulario() {
   const [config, setConfig] = useState({});
   const [qtys, setQtys] = useState({});
   const [form, setForm] = useState({ email:'', nombre_empresa:'', tipo_documento:'', numero_documento:'', nombre_contacto:'', telefono:'', fecha_entrega:'', direccion:'', observaciones:'', tiene_anticipo:null });
-  const [horaSel, setHoraSel] = useState({ h:'', m:'', ampm:'' });
+  const [horaSel, setHoraSel] = useState({ h:'', m:'', ampm:'AM' });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [pedidoCreado, setPedidoCreado] = useState(null);
@@ -234,7 +234,6 @@ export default function Formulario() {
               </div>
               <div style={{ position:'relative', flex:1 }}>
                 <select value={horaSel.ampm} onChange={e=>setHoraSel(hs=>({...hs,ampm:e.target.value}))} style={{ ...s.input, paddingRight:24, WebkitAppearance:'none', appearance:'none', cursor:'pointer' }}>
-                  <option value="">AM/PM</option>
                   <option value="AM">AM</option>
                   <option value="PM">PM</option>
                 </select>

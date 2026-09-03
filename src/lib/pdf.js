@@ -4,6 +4,20 @@ import 'jspdf-autotable';
 const fmt = n => `$${Number(n||0).toLocaleString('es-CO')}`;
 const fmtDate = d => d ? new Date(d+'T12:00').toLocaleDateString('es-CO') : '';
 
+// Nombre de archivo: si es 1 solo pedido, incluye el nombre de la empresa.
+// Si son varios, usa "Lote" + fecha.
+function nombreArchivo(prefijo, pedidos) {
+  const fecha = new Date().toISOString().slice(0,10);
+  if (pedidos.length === 1) {
+    const limpio = (pedidos[0].nombre_empresa || 'Cliente')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita tildes
+      .replace(/[^a-zA-Z0-9]+/g, '') // solo letras y números
+      .slice(0, 40);
+    return `${prefijo}_${limpio}.pdf`;
+  }
+  return `${prefijo}_Lote_${fecha}.pdf`;
+}
+
 // El domicilio ya no es una columna aparte: es un item más dentro de pedido_items
 // (nombre_producto = 'Domicilio'). El total es simplemente la suma de todos los items.
 const totalPedido = (items) => items.reduce((s,i)=>s+(i.subtotal||0),0);
@@ -141,7 +155,7 @@ export function imprimirOrdenes(pedidos, itemsPorPedido, config) {
     if(i>0) doc.addPage([216,140],'landscape');
     renderOrden(doc, p, itemsPorPedido[p.id]||[], config);
   });
-  doc.save(`Ordenes_${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save(nombreArchivo('Orden', pedidos));
 }
 
 // ── COMANDA DE PRODUCCIÓN (media carta horizontal) ──────────────────────────
@@ -196,7 +210,7 @@ export function imprimirComandas(pedidos, itemsPorPedido, config) {
     if(i>0) doc.addPage([216,140],'landscape');
     renderComanda(doc, p, itemsPorPedido[p.id]||[], config);
   });
-  doc.save(`Comandas_${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save(nombreArchivo('Comanda', pedidos));
 }
 
 // ── RECIBO DE CAJA — ultra compacto, tipo POS, media carta vertical ─────────
@@ -306,7 +320,7 @@ export async function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, c
     }
   });
 
-  doc.save(`Recibos_${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save(nombreArchivo('Recibo', pedidos));
 }
 
 // ── COTIZACIÓN — con imagen pequeña por producto y paginación ──────────────
@@ -398,7 +412,7 @@ export async function imprimirCotizaciones(pedidos, itemsPorPedido, config) {
     }
   });
 
-  doc.save(`Cotizacion_${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save(nombreArchivo('Cotizacion', pedidos));
 }
 
 // ── CUENTA DE COBRO (carta vertical) ────────────────────────────────────────
@@ -451,7 +465,7 @@ export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
     if (config.nit) { doc.text(`NIT. ${config.nit}`, M, y); y += 5; }
     if (config.telefono) { doc.text(`Cel. ${config.telefono}`, M, y); }
   });
-  doc.save(`CuentaCobro_${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save(nombreArchivo('CuentaCobro', pedidos));
 }
 
 // ── Exportar Excel de toda la base de datos ─────────────────────────────────
