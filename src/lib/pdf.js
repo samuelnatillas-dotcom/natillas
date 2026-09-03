@@ -4,6 +4,53 @@ import 'jspdf-autotable';
 const fmt = n => `$${Number(n||0).toLocaleString('es-CO')}`;
 const fmtDate = d => d ? new Date(d+'T12:00').toLocaleDateString('es-CO') : '';
 
+// ── Convertir número a letras en español (pesos colombianos) ───────────────
+const UNIDADES = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+const DECENAS = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+const ESPECIALES = { 10:'diez',11:'once',12:'doce',13:'trece',14:'catorce',15:'quince',16:'dieciséis',17:'diecisiete',18:'dieciocho',19:'diecinueve',21:'veintiuno',22:'veintidós',23:'veintitrés',24:'veinticuatro',25:'veinticinco',26:'veintiséis',27:'veintisiete',28:'veintiocho',29:'veintinueve' };
+const CENTENAS = ['', 'cien', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+
+function convertirGrupo(n) {
+  if (n === 0) return '';
+  if (n === 100) return 'cien';
+  let resultado = '';
+  const c = Math.floor(n / 100);
+  const resto = n % 100;
+  if (c > 0) resultado += CENTENAS[c] + ' ';
+  if (ESPECIALES[resto]) {
+    resultado += ESPECIALES[resto];
+  } else {
+    const d = Math.floor(resto / 10);
+    const u = resto % 10;
+    if (d > 0) {
+      resultado += DECENAS[d];
+      if (u > 0) resultado += ' y ' + UNIDADES[u];
+    } else if (u > 0) {
+      resultado += UNIDADES[u];
+    }
+  }
+  return resultado.trim();
+}
+
+function numeroALetras(num) {
+  num = Math.round(num);
+  if (num === 0) return 'cero pesos';
+  const millones = Math.floor(num / 1000000);
+  const miles = Math.floor((num % 1000000) / 1000);
+  const resto = num % 1000;
+  let partes = [];
+  if (millones > 0) partes.push((millones === 1 ? 'un millón' : convertirGrupo(millones) + ' millones'));
+  if (miles > 0) {
+    let textoMiles = convertirGrupo(miles);
+    textoMiles = textoMiles.replace(/^uno$/, 'un').replace(/veintiuno$/, 'veintiún');
+    partes.push(miles === 1 ? 'mil' : textoMiles + ' mil');
+  }
+  if (resto > 0) partes.push(convertirGrupo(resto));
+  let texto = partes.join(' ').trim();
+  texto = texto.charAt(0).toUpperCase() + texto.slice(1);
+  return texto + ' pesos ML';
+}
+
 // Nombre de archivo: si es 1 solo pedido, incluye el nombre de la empresa.
 // Si son varios, usa "Lote" + fecha.
 function nombreArchivo(prefijo, pedidos) {
@@ -258,10 +305,14 @@ export async function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, c
     y += 4.5;
 
     doc.setFontSize(6.8); doc.setTextColor(30,30,30);
-    const campo = (l,v) => { doc.setFont('helvetica','bold'); doc.text(l,M,y); doc.setFont('helvetica','normal'); doc.text(String(v||''), M+22, y, {maxWidth: W-M*2-22}); y += 3.6; };
+    const campo = (l,v) => { doc.setFont('helvetica','bold'); doc.text(l,M,y); doc.setFont('helvetica','normal'); doc.text(String(v||''), M+26, y, {maxWidth: W-M*2-26}); y += 3.6; };
+    campo('NIT/CC:', `${pedido.tipo_documento||''} ${pedido.numero_documento||''}`);
     campo('Cliente:', pedido.nombre_empresa);
-    campo('Teléfono:', pedido.telefono);
-    campo('Entrega:', `${fmtDate(pedido.fecha_entrega)} ${pedido.hora_entrega?pedido.hora_entrega.slice(0,5):''}`);
+    campo('Contacto:', pedido.nombre_contacto);
+    campo('Tel. recibe:', pedido.telefono);
+    campo('Dirección:', pedido.direccion);
+    campo('F. entrega:', fmtDate(pedido.fecha_entrega));
+    campo('Hora:', pedido.hora_entrega ? pedido.hora_entrega.slice(0,5) : '');
 
     y += 1.5;
     doc.setDrawColor(220,220,220); doc.line(M, y, W-M, y); y += 4;
@@ -296,7 +347,8 @@ export async function imprimirRecibos(pedidos, pagosPorPedido, itemsPorPedido, c
       doc.text('PAGOS:', M, y); y += 3.4;
       doc.setFont('helvetica','normal');
       pagos.forEach(p => {
-        doc.text(`- ${p.metodo} (${p.tipo}): ${fmt(p.monto)}`, M+1, y, {maxWidth: W-M*2-2});
+        const tipoMostrar = p.tipo === 'Pago Normal' ? 'Pago Total' : p.tipo;
+        doc.text(`- ${p.metodo} (${tipoMostrar}): ${fmt(p.monto)}`, M+1, y, {maxWidth: W-M*2-2});
         y += 3.4;
       });
       y += 1;
@@ -421,7 +473,7 @@ export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
   const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'letter'});
   pedidos.forEach((pedido, idx) => {
     if (idx>0) doc.addPage('letter','portrait');
-    const W = 216, M = 25;
+    const W = 216, M = 22;
     const items = itemsPorPedido[pedido.id] || [];
     const total = totalPedido(items);
     let y = M;
@@ -431,39 +483,63 @@ export function imprimirCuentasCobro(pedidos, itemsPorPedido, config) {
     y += 5;
     doc.setFontSize(9); doc.setTextColor(120,120,120); doc.setFont('helvetica','normal');
     doc.text(config.mensaje||'Calidad, frescura y cumplimiento', W/2, y, {align:'center'});
-    y += 20;
+    y += 14;
 
     doc.setTextColor(30,30,30); doc.setFontSize(13); doc.setFont('helvetica','bold');
     doc.text('CUENTA DE COBRO', W/2, y, {align:'center'});
-    y += 12;
+    y += 9;
 
     const fecha = new Date(pedido.fecha_registro||Date.now());
     const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     doc.setFontSize(10); doc.setFont('helvetica','normal');
     doc.text(`${meses[fecha.getMonth()]} ${fecha.getDate()} de ${fecha.getFullYear()}`, W/2, y, {align:'center'});
-    y += 16;
+    y += 12;
 
-    doc.setFont('helvetica','bold'); doc.text('Debe a:', W/2, y, {align:'center'}); y += 6;
-    doc.setFont('helvetica','normal'); doc.text(pedido.nombre_empresa||'', W/2, y, {align:'center'}); y += 6;
-    if (pedido.numero_documento) { doc.text(`${pedido.tipo_documento||'Doc.'}: ${pedido.numero_documento}`, W/2, y, {align:'center'}); y += 6; }
+    // Datos del cliente (quien debe pagar)
+    doc.setFontSize(9.5); doc.setTextColor(30,30,30);
+    doc.setFont('helvetica','bold'); doc.text('NIT/CC Cliente:', M, y);
+    doc.setFont('helvetica','normal'); doc.text(`${pedido.tipo_documento||''} ${pedido.numero_documento||''}`, M+38, y);
+    y += 6;
+    doc.setFont('helvetica','bold'); doc.text('Nombre Cliente:', M, y);
+    doc.setFont('helvetica','normal'); doc.text(pedido.nombre_empresa||'', M+38, y);
     y += 14;
 
-    doc.setTextColor(30,126,52); doc.setFont('helvetica','bold'); doc.setFontSize(14);
-    doc.text(`LA SUMA DE: ${fmt(total)}`, M, y, {maxWidth: W-M*2}); y += 9;
-    doc.setTextColor(30,30,30);
-    const conceptoLineas = items.map(i=>`${i.cantidad}x ${i.nombre_producto}`).join(', ');
-    doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(`POR CONCEPTO DE: ${conceptoLineas}`, M, y, {maxWidth: W-M*2});
-    y += 24;
+    // "Debe a" — siempre fijo, datos del negocio que recibe el pago
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Debe a:', W/2, y, {align:'center'}); y += 6;
+    doc.setFont('helvetica','normal');
+    doc.text('PAULA ANDREA GUTIERREZ SANTAMARIA', W/2, y, {align:'center'}); y += 5.5;
+    doc.text('NATILLA MEDELLIN', W/2, y, {align:'center'}); y += 5.5;
+    doc.text(`NIT. ${config.nit || '43.749.223-8'}`, W/2, y, {align:'center'}); y += 14;
 
-    doc.setFontSize(9);
-    doc.text('NO SOMOS RESPONSABLES DE IVA', M, y);
-    y += 20;
+    // La suma de — en letras y números
+    doc.setTextColor(30,126,52); doc.setFont('helvetica','bold'); doc.setFontSize(12);
+    doc.text(`LA SUMA DE: ${numeroALetras(total)} (${fmt(total)})`, M, y, {maxWidth: W-M*2}); y += 12;
 
-    doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(config.nombre_negocio||'', M, y); y += 5;
-    if (config.nit) { doc.text(`NIT. ${config.nit}`, M, y); y += 5; }
-    if (config.telefono) { doc.text(`Cel. ${config.telefono}`, M, y); }
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('POR CONCEPTO DE:', M, y); y += 6;
+
+    doc.autoTable({
+      startY: y,
+      margin: {left:M, right:M},
+      head: [['CANT.', 'PRODUCTO', 'VALOR UNITARIO', 'VALOR TOTAL']],
+      body: items.map(i => [i.cantidad, i.nombre_producto, fmt(i.precio_unitario), fmt(i.subtotal)]),
+      foot: [['', '', 'TOTAL', fmt(total)]],
+      styles: { fontSize: 9.5, cellPadding: 3 },
+      headStyles: { fillColor:[30,126,52], textColor:255, fontStyle:'bold' },
+      footStyles: { fontStyle:'bold', fillColor:[240,248,240], textColor:[30,30,30] },
+      columnStyles: { 0:{cellWidth:22,halign:'center'}, 2:{cellWidth:38,halign:'right'}, 3:{cellWidth:38,halign:'right'} },
+    });
+
+    let fy = doc.lastAutoTable.finalY + 14;
+    doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
+    doc.text('NO SOMOS RESPONSABLES DE IVA', M, fy);
+    fy += 18;
+
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.text(config.nombre_negocio||'', M, fy); fy += 5;
+    if (config.nit) { doc.text(`NIT. ${config.nit}`, M, fy); fy += 5; }
+    if (config.telefono) { doc.text(`Cel. ${config.telefono}`, M, fy); }
   });
   doc.save(nombreArchivo('CuentaCobro', pedidos));
 }

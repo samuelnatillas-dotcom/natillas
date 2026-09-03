@@ -6,6 +6,8 @@ import { imprimirRecibos } from '../lib/pdf';
 import * as XLSX from 'xlsx';
 
 const fmt = n => `$${Number(n||0).toLocaleString('es-CO')}`;
+// Solo cambia cómo se muestra en pantalla: "Pago Normal" (guardado en BD) se ve como "Pago Total"
+const tipoLabel = t => t === 'Pago Normal' ? 'Pago Total' : t;
 
 export default function Pagos() {
   const [pedidos, setPedidos] = useState([]);
@@ -103,7 +105,7 @@ export default function Pagos() {
   };
 
   const exportarExcel = () => {
-    const data = filtered.map(p => ({ 'No.':p.consecutivo,'Empresa':p.nombre_empresa,'Contacto':p.nombre_contacto,'Documento':`${p.tipo_documento||''} ${p.numero_documento||''}`,'Total Pedido':p.totalPedido,'Total Pagado':p.totalPagado,'Saldo':p.saldo,'Estado':p.completado?'Completado':'Pendiente','Pagos':p.pagosDel.map(pg=>`${pg.tipo}/${pg.metodo}: ${fmt(pg.monto)}`).join(' | ') }));
+    const data = filtered.map(p => ({ 'No.':p.consecutivo,'Empresa':p.nombre_empresa,'Contacto':p.nombre_contacto,'Documento':`${p.tipo_documento||''} ${p.numero_documento||''}`,'Total Pedido':p.totalPedido,'Total Pagado':p.totalPagado,'Saldo':p.saldo,'Estado':p.completado?'Completado':'Pendiente','Pagos':p.pagosDel.map(pg=>`${tipoLabel(pg.tipo)}/${pg.metodo}: ${fmt(pg.monto)}`).join(' | ') }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Pagos');
     XLSX.writeFile(wb, `Pagos_${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -193,7 +195,7 @@ export default function Pagos() {
                   </td>
                   <td style={{fontSize:11,color:'#5f6368',maxWidth:200}}>
                     {p.pagosDel.length===0?'—':p.pagosDel.map((pg,i)=>(
-                      <div key={i}>{pg.tipo} · {pg.metodo}: {fmt(pg.monto)}{pg.referencia?` · ${pg.referencia}`:''}</div>
+                      <div key={i}>{tipoLabel(pg.tipo)} · {pg.metodo}: {fmt(pg.monto)}{pg.referencia?` · ${pg.referencia}`:''}</div>
                     ))}
                   </td>
                   <td>
@@ -230,7 +232,7 @@ export default function Pagos() {
                   <div key={pg.id} style={{padding:'8px 0',borderBottom:'1px solid #f1f3f4'}}>
                     <div style={{display:'flex',gap:6,marginBottom:6}}>
                       <select value={editPagoData.tipo} onChange={e=>setEditPagoData(d=>({...d,tipo:e.target.value}))} style={{flex:1,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}}>
-                        <option>Pago Normal</option><option>Anticipo</option>
+                        <option value="Pago Normal">Pago Total</option><option value="Anticipo">Anticipo</option>
                       </select>
                       <select value={editPagoData.metodo} onChange={e=>setEditPagoData(d=>({...d,metodo:e.target.value}))} style={{flex:1,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}}>
                         <option>Efectivo</option><option>Transferencia</option>
@@ -238,6 +240,7 @@ export default function Pagos() {
                     </div>
                     <div style={{display:'flex',gap:6}}>
                       <input type="number" value={editPagoData.monto} onChange={e=>setEditPagoData(d=>({...d,monto:e.target.value}))} style={{flex:1,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}} placeholder="Monto" />
+                      <button type="button" onClick={()=>setEditPagoData(d=>({...d,monto:''}))} title="Borrar monto" style={{padding:'5px 8px',border:'1px solid #dadce0',borderRadius:4,background:'#fef7f6',color:'#d93025',cursor:'pointer',display:'flex',alignItems:'center'}}><X size={12}/></button>
                       <input value={editPagoData.referencia||''} onChange={e=>setEditPagoData(d=>({...d,referencia:e.target.value}))} style={{flex:2,padding:'5px 7px',border:'1px solid #dadce0',borderRadius:4,fontSize:12}} placeholder="Referencia" />
                       <button className="btn btn-green" style={{padding:'4px 8px'}} onClick={saveEditPago}><Save size={12}/></button>
                       <button className="btn" style={{padding:'4px 8px'}} onClick={cancelEditPago}><X size={12}/></button>
@@ -245,7 +248,7 @@ export default function Pagos() {
                   </div>
                 ) : (
                   <div key={pg.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:'1px solid #f1f3f4',fontSize:13}}>
-                    <span>{pg.tipo} · {pg.metodo}{pg.referencia?` · ${pg.referencia}`:''}</span>
+                    <span>{tipoLabel(pg.tipo)} · {pg.metodo}{pg.referencia?` · ${pg.referencia}`:''}</span>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
                       <strong>{fmt(pg.monto)}</strong>
                       <button className="btn btn-ghost" style={{padding:'3px 6px'}} onClick={()=>startEditPago(pg)}><Edit2 size={12}/></button>
@@ -260,7 +263,7 @@ export default function Pagos() {
             <div className="form-grid cols2" style={{marginBottom:10}}>
               <div className="fg">
                 <label>Tipo</label>
-                <div className="select-wrap"><select value={nuevoPago.tipo} onChange={e=>setNuevoPago(n=>({...n,tipo:e.target.value}))}><option>Pago Normal</option><option>Anticipo</option></select></div>
+                <div className="select-wrap"><select value={nuevoPago.tipo} onChange={e=>setNuevoPago(n=>({...n,tipo:e.target.value}))}><option value="Pago Normal">Pago Total</option><option value="Anticipo">Anticipo</option></select></div>
               </div>
               <div className="fg">
                 <label>Método</label>
@@ -269,7 +272,12 @@ export default function Pagos() {
             </div>
             <div className="fg" style={{marginBottom:10}}>
               <label>Monto ($)</label>
-              <input type="number" value={nuevoPago.monto} onChange={e=>setNuevoPago(n=>({...n,monto:e.target.value}))} placeholder="0" style={{padding:'8px 10px',border:'1px solid #dadce0',borderRadius:4,fontSize:14}} />
+              <div style={{display:'flex',gap:6}}>
+                <input type="number" value={nuevoPago.monto} onChange={e=>setNuevoPago(n=>({...n,monto:e.target.value}))} placeholder="0" style={{flex:1,padding:'8px 10px',border:'1px solid #dadce0',borderRadius:4,fontSize:14}} />
+                <button type="button" onClick={()=>setNuevoPago(n=>({...n,monto:''}))} title="Borrar monto" style={{padding:'8px 12px',border:'1px solid #dadce0',borderRadius:4,background:'#fef7f6',color:'#d93025',cursor:'pointer',display:'flex',alignItems:'center'}}>
+                  <X size={16}/>
+                </button>
+              </div>
             </div>
             <div className="fg" style={{marginBottom:14}}>
               <label>Referencia / Nota</label>
